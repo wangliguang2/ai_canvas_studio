@@ -231,7 +231,7 @@ function addNode(type, x, y, data = {}) {
     y,
     w: data.w || (['t2v', 'i2v'].includes(type) ? 300 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
     h: data.h || 120,
-    title: data.title || typeNames[type] || '鑺傜偣',
+    title: data.title || typeNames[type] || '节点',
     text: data.text || '',
     url: data.url || '',
     mime: data.mime || '',
@@ -304,8 +304,8 @@ function render() {
 }
 
 function nodeHTML(node) {
-  const title = escapeHtml(node.title || typeNames[node.type] || '鑺傜偣');
-  const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="鍒犻櫎">脳</button></div>`;
+  const title = escapeHtml(node.title || typeNames[node.type] || '节点');
+  const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="删除">脳</button></div>`;
   let body = '';
   if (node.type === 'group') {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
@@ -321,22 +321,22 @@ function nodeHTML(node) {
       : `<img src="${node.url}" alt="" draggable="false">`;
   } else if (node.type === 'prompt') {
     body = `
-      <label class="node-label">鎻愮ず璇?/label>
-      <textarea data-field="text" placeholder="杈撳叆瑙嗛/鍥剧墖鎻愮ず璇?..">${escapeHtml(node.text)}</textarea>
+      <label class="node-label">提示词</label>
+      <textarea data-field="text" placeholder="输入视频/图片提示词...">${escapeHtml(node.text)}</textarea>
     `;
   } else if (node.type === 't2v' || node.type === 'i2v') {
     body = videoGeneratorHTML(node);
   } else if (node.type === 't2i' || node.type === 'i2i') {
     body = imageGeneratorHTML(node);
   } else if (node.type === 'text' || node.type === 'script') {
-    const placeholder = node.type === 'script' ? '鍐欒剼鏈垨璇锋眰鑽夌...' : '杈撳叆鎻愮ず璇嶆垨鏂囨湰...';
+    const placeholder = node.type === 'script' ? '写脚本或请求草稿...' : '输入提示词或文本...';
     body = `<textarea data-field="text" placeholder="${placeholder}">${escapeHtml(node.text)}</textarea>`;
   } else {
     body = `<div>${escapeHtml(node.text || '空节点')}</div>`;
   }
-  const input = canInput(node.type) ? '<div class="port in" data-port="in" title="杈撳叆"></div>' : '';
-  const output = canOutput(node.type) ? '<div class="port out" data-port="out" title="杈撳嚭"></div>' : '';
-  return `${input}${output}${head}<div class="node-body">${body}</div><div class="resize-handle" title="鎷栧姩璋冩暣澶у皬"></div>`;
+  const input = canInput(node.type) ? '<div class="port in" data-port="in" title="输入"></div>' : '';
+  const output = canOutput(node.type) ? '<div class="port out" data-port="out" title="输出"></div>' : '';
+  return `${input}${output}${head}<div class="node-body">${body}</div><div class="resize-handle" title="拖动调整大小"></div>`;
 }
 
 function imageGeneratorHTML(node) {
@@ -411,7 +411,7 @@ function videoGeneratorHTML(node) {
   const src = node.resultUrl || '';
   const preview = src
     ? `<video class="node-video-output" src="${src}" controls></video>`
-    : '<div class="node-video-empty">瑙嗛棰勮</div>';
+    : '<div class="node-video-empty">视频预览</div>';
   const status = node.taskStatus ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}</div>` : '';
   return `<div class="node-preview-shell">${preview}${status}</div>`;
 }
@@ -421,8 +421,8 @@ function videoParamPanelHTML(node) {
   return `
     ${node.type === 'i2v' ? referenceImageStripHTML(node) : ''}
     ${node.type === 'i2v' ? `
-      <label class="node-label">鎻愮ず璇?/label>
-      <textarea class="param-prompt" data-field="text" placeholder="鎻忚堪鍙傝€冨浘濡備綍杩愬姩銆侀暅澶村拰鍔ㄤ綔...">${escapeHtml(node.text || '')}</textarea>
+      <label class="node-label">提示词</label>
+      <textarea class="param-prompt" data-field="text" placeholder="描述参考图如何运动、镜头和动作...">${escapeHtml(node.text || '')}</textarea>
     ` : ''}
     <div class="node-grid">
       <div>
@@ -443,10 +443,10 @@ function videoParamPanelHTML(node) {
       </div>
     </div>
     <div class="node-checks">
-      <label><input data-field="generateAudio" type="checkbox" ${node.generateAudio ? 'checked' : ''}> 鐢熸垚闊抽</label>
-      <label><input data-field="watermark" type="checkbox" ${node.watermark ? 'checked' : ''}> 姘村嵃</label>
+      <label><input data-field="generateAudio" type="checkbox" ${node.generateAudio ? 'checked' : ''}> 生成音频</label>
+      <label><input data-field="watermark" type="checkbox" ${node.watermark ? 'checked' : ''}> 水印</label>
     </div>
-    <button class="node-generate" data-generate-node>寮€濮嬬敓鎴?/button>
+    <button class="node-generate" data-generate-node>开始生成</button>
     ${status}
   `;
 }
@@ -474,13 +474,13 @@ function referenceImageStripHTML(node) {
   const refStrip = refs.map((ref, index) => `
     <div class="image-ref-card" draggable="true" data-ref-index="${index}">
       <img class="image-ref-thumb" src="${ref.url}" alt="">
-      <span>鍥剧墖${index + 1}</span>
+      <span>图片${index + 1}</span>
     </div>
   `).join('');
   return `
     <div class="image-ref-row">
       ${refStrip}
-      <button class="image-add-ref" data-add-ref>+<span>娣诲姞</span></button>
+      <button class="image-add-ref" data-add-ref>+<span>添加</span></button>
     </div>
   `;
 }
@@ -493,7 +493,7 @@ function renderAssets() {
     .filter(n => state.assetFilter === 'all' || n.category === state.assetFilter);
   els.assetList.innerHTML = assets.length
     ? assets.map(n => assetCardHTML(n)).join('')
-    : '<div class="asset-item">鏆傛棤璧勪骇锛屽彸閿笂浼犵礌鏉?/div>';
+    : '<div class="asset-item">暂无资产，右键上传素材</div>';
 }
 
 function assetCardHTML(n) {
@@ -501,7 +501,7 @@ function assetCardHTML(n) {
     ? `<img src="${n.url}" alt="">`
     : n.type === 'video'
       ? `<video src="${n.url}" muted></video>`
-      : '<div class="asset-audio">闊抽</div>';
+      : '<div class="asset-audio">音频</div>';
   return `
     <div class="asset-card" data-asset="${n.id}">
       <div class="asset-thumb">${media}</div>
@@ -513,9 +513,9 @@ function assetCardHTML(n) {
 
 function assetCategory(n) {
   const text = `${n.title || ''} ${n.role || ''}`.toLowerCase();
-  if (/浜簗瑙掕壊|鐢穦濂硘face|person|character|model/.test(text)) return 'person';
-  if (/鍦烘櫙|鑳屾櫙|鍩庡競|绔规灄|娴穦room|scene|bg/.test(text)) return 'scene';
-  if (/椋庢牸|style|鑹插僵|璋冭壊|缇庡/.test(text)) return 'style';
+  if (/人物|角色|人像|美女|face|person|character|model/.test(text)) return 'person';
+  if (/场景|背景|城市|竹林|海|room|scene|bg/.test(text)) return 'scene';
+  if (/风格|style|色彩|调色|美学/.test(text)) return 'style';
   if (n.type === 'image') return 'object';
   return 'other';
 }
@@ -529,14 +529,14 @@ function renderHistory() {
   const items = state.generationHistory.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 200);
   els.historyList.innerHTML = items.length
     ? items.map(item => `<div class="history-item" data-history-result="${item.id}">${escapeHtml(item.title)}<br>${escapeHtml(item.kind)}${item.status ? ` 路 ${escapeHtml(item.status)}` : ''}</div>`).join('')
-    : '<div class="history-item">鏆傛棤鐢熸垚鍘嗗彶</div>';
+    : '<div class="history-item">鏆傛棤生成鍘嗗彶</div>';
 }
 
 function addGenerationHistory(item) {
   state.generationHistory.unshift({
     id: uid('history'),
-    title: item.title || '鐢熸垚缁撴灉',
-    kind: item.kind || '鐢熸垚',
+    title: item.title || '生成结果',
+    kind: item.kind || '生成',
     url: item.url || '',
     mime: item.mime || '',
     createdAt: Date.now(),
@@ -662,7 +662,7 @@ function cutLinkAt(clientX, clientY) {
   const link = state.links.find(l => linkNearPoint(l, point));
   if (!link) return false;
   deleteLink(link.id);
-  setStatus('鍏崇郴绾垮凡鍓柇');
+  setStatus('关系线已剪断');
   return true;
 }
 
@@ -676,21 +676,21 @@ function updateNodeInfo() {
       const to = state.nodes.find(n => n.id === link.to);
       els.nodeInfo.innerHTML = `
         <strong>鍏崇郴绾?/strong><br>
-        浠庯細${escapeHtml(from?.title || link.from)}<br>
+        从：${escapeHtml(from?.title || link.from)}<br>
         鍒帮細${escapeHtml(to?.title || link.to)}<br>
         鎸?Delete 鍙垹闄よ繖鏉＄嚎
       `;
       return;
     }
-    els.nodeInfo.textContent = '鏈€変腑';
+    els.nodeInfo.textContent = '未选中';
     return;
   }
   els.nodeInfo.innerHTML = `
     <strong>${escapeHtml(node.title)}</strong><br>
-    绫诲瀷锛?{typeNames[node.type] || node.type}<br>
-    浣嶇疆锛?{Math.round(node.x)}, ${Math.round(node.y)}<br>
-    ${node.url ? `鏂囦欢锛?a href="${node.url}" target="_blank">${escapeHtml(node.url)}</a><br>` : ''}
-    ${node.role ? `瑙掕壊锛?{escapeHtml(node.role)}` : ''}
+    类型：${typeNames[node.type] || node.type}<br>
+    位置：${Math.round(node.x)}, ${Math.round(node.y)}<br>
+    ${node.url ? `文件：<a href="${node.url}" target="_blank">${escapeHtml(node.url)}</a><br>` : ''}
+    ${node.role ? `角色：${escapeHtml(node.role)}` : ''}
   `;
 }
 
@@ -721,7 +721,7 @@ async function uploadFiles(files, point) {
   if (!files.length) return;
   const form = new FormData();
   for (const file of files) form.append('files', file);
-  setStatus('涓婁紶涓?..');
+  setStatus('上传中...');
   const res = await fetch('/api/upload', { method: 'POST', body: form });
   const data = await res.json();
   let x = point.x;
@@ -742,7 +742,7 @@ async function uploadFiles(files, point) {
   }
   renderAssets();
   renderHistory();
-  setStatus('涓婁紶瀹屾垚');
+  setStatus('上传完成');
 }
 
 function connectPendingTo(targetId) {
@@ -855,7 +855,7 @@ async function generate() {
     references: selectedReferences(),
     clientConfig: state.config,
   };
-  setStatus('鎻愪氦鐢熸垚浠诲姟...');
+  setStatus('正在提交生成任务...');
   try {
     const res = await fetch('/api/generate', {
       method: 'POST',
@@ -867,14 +867,14 @@ async function generate() {
       const pretty = JSON.stringify(data.payload || data, null, 2);
       const p = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
       addNode('script', p.x, p.y, {
-        title: `${typeNames[state.mode]} 璇锋眰鑽夌`,
+        title: `${typeNames[state.mode]} 请求草稿`,
         text: pretty,
         w: 300,
       });
-      setStatus('璇ョ敓鍥炬帴鍙ｆ湭鎺ュ叆锛屽凡鐢熸垚璇锋眰鑽夌鑺傜偣');
+      setStatus('该生图接口未接入，已生成请求草稿节点');
       return;
     }
-    setStatus(`浠诲姟宸叉彁浜わ細${data.taskId}`);
+    setStatus(`任务已提交：${data.taskId}`);
     pollTasks();
   } catch (err) {
     setStatus(`生成失败：${err.message}`);
@@ -888,7 +888,7 @@ async function generateFromNode(nodeId) {
   const prompt = node.type === 'i2v' ? ((node.text || '').trim() || linkedPrompt) : linkedPrompt;
   if (!prompt) {
     node.taskStatus = 'failed';
-    node.progressText = '璇峰湪鑺傜偣閲屽～鍐欐彁绀鸿瘝锛屾垨杩炴帴涓€涓彁绀鸿瘝鑺傜偣';
+    node.progressText = '请在节点里填写提示词，或连接一个提示词节点';
     render();
     saveCanvas();
     return;
@@ -896,7 +896,7 @@ async function generateFromNode(nodeId) {
 
   node.model = 'doubao-seedance-2.0';
   node.taskStatus = 'queued';
-  node.progressText = '鎻愪氦鐢熸垚浠诲姟...';
+  node.progressText = '正在提交生成任务...';
   node.resultUrl = '';
   render();
   saveCanvas();
@@ -925,7 +925,7 @@ async function generateFromNode(nodeId) {
     if (!res.ok) throw new Error(data.error || JSON.stringify(data));
     node.taskId = data.taskId;
     node.taskStatus = 'running';
-    node.progressText = `鐢熸垚涓細${data.taskId}`;
+    node.progressText = `生成中：${data.taskId}`;
     render();
     saveCanvas();
     pollNodeTask(node.id, data.taskId);
@@ -933,7 +933,7 @@ async function generateFromNode(nodeId) {
     if (progressTimer) window.clearInterval(progressTimer);
     node.taskStatus = 'failed';
     node.progressPercent = 100;
-    node.progressText = `鎻愪氦澶辫触锛?{err.message}`;
+    node.progressText = `提交失败：${err.message}`;
     render();
     saveCanvas();
   }
@@ -952,7 +952,7 @@ async function generateImageFromNode(nodeId) {
     return;
   }
   node.taskStatus = 'queued';
-  node.progressText = 'Submitting image task...';
+  node.progressText = '正在提交生图任务...';
   node.progressPercent = 12;
   node.resultUrl = '';
   render();
@@ -971,7 +971,7 @@ async function generateImageFromNode(nodeId) {
   try {
     await new Promise(resolve => requestAnimationFrame(resolve));
     node.taskStatus = 'running';
-    node.progressText = 'Generating image...';
+    node.progressText = '正在生成图片...';
     node.progressPercent = 35;
     render();
     saveCanvas();
@@ -986,7 +986,7 @@ async function generateImageFromNode(nodeId) {
     if (!res.ok || data.unsupported) {
       node.taskStatus = 'failed';
       node.progressPercent = 100;
-      node.progressText = data.error || '鐢熷浘澶辫触';
+      node.progressText = data.error || '生图失败，请检查 API Key、网站地址或模型名称';
       render();
       saveCanvas();
       return;
@@ -997,9 +997,9 @@ async function generateImageFromNode(nodeId) {
       node.mime = 'image/png';
       node.taskStatus = 'succeeded';
       node.progressPercent = 100;
-      node.progressText = '鐢熸垚鎴愬姛';
+      node.progressText = '生成成功';
       addGenerationHistory({
-        title: `${node.model || 'image2'} 杈撳嚭`,
+        title: `${node.model || 'image2'} 输出`,
         kind: node.type === 'i2i' ? '图生图' : '文生图',
         url: data.url,
         mime: 'image/png',
@@ -1009,7 +1009,7 @@ async function generateImageFromNode(nodeId) {
     }
   } catch (err) {
     node.taskStatus = 'failed';
-    node.progressText = `鎻愪氦澶辫触锛?{err.message}`;
+    node.progressText = `提交失败：${err.message}`;
     render();
     saveCanvas();
   }
@@ -1064,11 +1064,11 @@ async function pollNodeTask(nodeId, taskId) {
     if (task.status === 'succeeded' && task.url) {
       node.resultUrl = task.url;
       node.mime = 'video/mp4';
-      node.title = `${node.model || 'doubao-seedance-2.0'} 杈撳嚭`;
-      node.progressText = '鐢熸垚鎴愬姛';
+      node.title = `${node.model || 'doubao-seedance-2.0'} 输出`;
+      node.progressText = '生成成功';
       addGenerationHistory({
         title: node.title,
-        kind: node.type === 'i2v' ? '鍥剧敓瑙嗛' : '鏂囩敓瑙嗛',
+        kind: node.type === 'i2v' ? '图生视频' : '文生视频',
         url: task.url,
         mime: 'video/mp4',
       });
@@ -1077,7 +1077,7 @@ async function pollNodeTask(nodeId, taskId) {
       return;
     }
     if (task.status === 'failed') {
-      node.progressText = task.error || '鐢熸垚澶辫触';
+      node.progressText = task.error || '生成失败';
       render();
       saveCanvas();
       return;
@@ -1087,7 +1087,7 @@ async function pollNodeTask(nodeId, taskId) {
     setTimeout(() => pollNodeTask(nodeId, taskId), 5000);
   } catch (err) {
     node.taskStatus = 'failed';
-    node.progressText = `鏌ヨ澶辫触锛?{err.message}`;
+    node.progressText = `查询失败：${err.message}`;
     render();
     saveCanvas();
   }
@@ -1096,10 +1096,10 @@ async function pollNodeTask(nodeId, taskId) {
 function progressText(task) {
   if (!task) return '等待中';
   if (task.status === 'queued') return '排队中';
-  if (task.status === 'creating') return '姝ｅ湪鍒涘缓浠诲姟';
+  if (task.status === 'creating') return '正在创建任务';
   if (task.status === 'running') return '生成中';
-  if (task.status === 'succeeded') return '鐢熸垚鎴愬姛';
-  if (task.status === 'failed') return task.error || '鐢熸垚澶辫触';
+  if (task.status === 'succeeded') return '生成鎴愬姛';
+  if (task.status === 'failed') return task.error || '生成失败';
   return `鐘舵€侊細${task.status}`;
 }
 
@@ -1108,7 +1108,7 @@ async function pollTasks() {
     const res = await fetch('/api/tasks');
     const data = await res.json();
     const tasks = Object.values(data.tasks || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    if (els.tasks) els.tasks.innerHTML = tasks.map(task => taskHTML(task)).join('') || '鏆傛棤浠诲姟';
+    if (els.tasks) els.tasks.innerHTML = tasks.map(task => taskHTML(task)).join('') || '暂无任务';
   } catch {
     // keep quiet during background polling
   }
@@ -1526,7 +1526,7 @@ function bindEvents() {
     if (event.code === 'Space') {
       event.preventDefault();
       state.spacePan = true;
-      setStatus('鎸変綇绌烘牸鎷栧姩鐢诲竷');
+      setStatus('按住空格拖动画布');
       return;
     }
     if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'z') {
@@ -1542,7 +1542,7 @@ function bindEvents() {
     if (event.key.toLowerCase() === 'y') {
       state.scissors = true;
       els.stage.classList.add('scissors');
-      setStatus('鍓垁妯″紡锛氬垝杩囧叧绯荤嚎鍗冲彲鍒犻櫎');
+      setStatus('剪刀模式：划过关系线即可删除');
       return;
     }
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
@@ -1551,7 +1551,7 @@ function bindEvents() {
       state.selectedIds = [];
       render();
       saveCanvas();
-      setStatus('宸插垹闄ら€変腑鑺傜偣');
+      setStatus('宸插垹闄ら€変腑节点');
     } else if (state.selectedId) {
       deleteNode(state.selectedId);
     } else if (state.selectedLinkId) {
@@ -1562,12 +1562,12 @@ function bindEvents() {
   document.addEventListener('keyup', event => {
     if (event.code === 'Space') {
       state.spacePan = false;
-      if (!state.selecting) setStatus('灏辩华');
+      if (!state.selecting) setStatus('就绪');
     }
     if (event.key.toLowerCase() === 'y') {
       state.scissors = false;
       els.stage.classList.remove('scissors');
-      setStatus('灏辩华');
+      setStatus('就绪');
     }
   });
 
@@ -1718,9 +1718,9 @@ function bindEvents() {
       fillModelSelect();
       if (isVideoMode(state.mode)) {
         selectVideoModel();
-        setStatus(`宸插垏鎹负瑙嗛妯″瀷锛?{videoModelName()}`);
+        setStatus(`已切换为视频模型：${videoModelName()}`);
       } else {
-        setStatus('宸插垏鎹负鐢熷浘妯″瀷');
+        setStatus('已切换为生图模型');
       }
     });
   });
@@ -1742,8 +1742,8 @@ function bindEvents() {
         state.menuPoint = p;
         els.audioInput.click();
       }
-      if (action === 'addPrompt') addNode('prompt', p.x, p.y, { text: els.prompt?.value || '鍐欎竴涓彁绀鸿瘝...' });
-      if (action === 'addT2V') addNode('t2v', p.x, p.y, { title: '瑙嗛鐢熸垚', text: els.prompt?.value || '' });
+      if (action === 'addPrompt') addNode('prompt', p.x, p.y, { text: els.prompt?.value || '写一个提示词...' });
+      if (action === 'addT2V') addNode('t2v', p.x, p.y, { title: '视频生成', text: els.prompt?.value || '' });
       if (action === 'fit') {
         state.scale = 1;
         state.pan = { x: -49800, y: -49800 };
@@ -1782,7 +1782,7 @@ function bindEvents() {
     } else if (type === 'upload-audio') {
       els.audioInput.click();
     } else {
-      created = addNode(type, p.x, p.y, { text: type.includes('2') ? '鐢熸垚鑺傜偣' : '' });
+      created = addNode(type, p.x, p.y, { text: type.includes('2') ? '生成节点' : '' });
       if (state.pendingLink) connectPendingTo(created.id);
     }
   });
@@ -2052,7 +2052,7 @@ function cloneNodesWithLinks(ids, offset = { x: 34, y: 34 }) {
     copy.id = uid(node.type);
     copy.x = (copy.x || 0) + offset.x;
     copy.y = (copy.y || 0) + offset.y;
-    copy.title = `${copy.title || typeNames[copy.type] || '鑺傜偣'} 鍓湰`;
+    copy.title = `${copy.title || typeNames[copy.type] || '节点'} 鍓湰`;
     if (copy.members) copy.members = copy.members.map(memberId => idMap.get(memberId) || memberId);
     idMap.set(node.id, copy.id);
     cloned.push(copy);
@@ -2122,5 +2122,9 @@ async function init() {
 }
 
 init();
+
+
+
+
 
 
