@@ -110,8 +110,19 @@ function applyTransform() {
 }
 
 function canvasSnapshot() {
+  const compactNodes = state.nodes.map(node => {
+    const copy = { ...node };
+    for (const key of ['url', 'resultUrl']) {
+      if (typeof copy[key] === 'string' && copy[key].startsWith('data:image/') && copy[key].length > 120000) {
+        copy[key] = '';
+        copy.progressText = '图片数据过大未保存，请重新生成';
+        copy.taskStatus = 'failed';
+      }
+    }
+    return copy;
+  });
   return JSON.stringify({
-    nodes: state.nodes,
+    nodes: compactNodes,
     links: state.links,
     pan: state.pan,
     scale: state.scale,
@@ -155,8 +166,12 @@ function saveCanvas() {
     state.undoStack = state.undoStack.slice(-80);
   }
   state.lastSnapshot = snapshot;
-  localStorage.setItem('ai-canvas-studio', snapshot);
-  setStatus('画布已保存');
+  try {
+    localStorage.setItem('ai-canvas-studio', snapshot);
+    setStatus('画布已保存');
+  } catch (err) {
+    setStatus('画布太大，已跳过本次自动保存');
+  }
 }
 
 function loadCanvas() {
@@ -219,6 +234,11 @@ function normalizeNode(node) {
   }
   if (['t2v', 'i2v'].includes(node.type)) {
     node.model = 'doubao-seedance-2.0';
+  }
+  if (['t2i', 'i2i'].includes(node.type) && ['queued', 'running', 'creating'].includes(node.taskStatus) && !node.taskId) {
+    node.taskStatus = 'failed';
+    node.progressPercent = 100;
+    node.progressText = '刷新后已中断，请重新点击生成';
   }
   return node;
 }
@@ -426,13 +446,13 @@ function videoParamPanelHTML(node) {
     ` : ''}
     <div class="node-grid">
       <div>
-        <label class="node-label">姣斾緥</label>
+        <label class="node-label">比例</label>
         <select data-field="ratio">
           ${['16:9', '9:16', '1:1', '4:3', '3:4'].map(v => `<option ${node.ratio === v ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
       </div>
       <div>
-        <label class="node-label">鏃堕暱</label>
+        <label class="node-label">时长</label>
         <input data-field="duration" type="number" min="1" max="15" value="${escapeHtml(node.duration)}">
       </div>
       <div>
@@ -465,7 +485,7 @@ function renderParamPanel() {
     <div class="param-panel-body">
       ${['t2i', 'i2i'].includes(node.type) ? imageParamPanelHTML(node) : videoParamPanelHTML(node)}
     </div>
-    <div class="panel-resize-handle" title="鎷栧姩璋冩暣鍙傛暟闈㈡澘"></div>
+    <div class="panel-resize-handle" title="拖动调整参数面板"></div>
   `;
   els.world.appendChild(panel);
 }
@@ -521,7 +541,7 @@ function assetCategory(n) {
 }
 
 function assetCategoryName(category) {
-  return { person: '浜虹墿', scene: '鍦烘櫙', object: '鐗╁搧', style: '椋庢牸', other: '鍏朵粬' }[category] || '鍏朵粬';
+  return { person: '人物', scene: '场景', object: '物品', style: '风格', other: '其他' }[category] || '其他';
 }
 
 function renderHistory() {
@@ -2066,7 +2086,7 @@ function cloneNodesWithLinks(ids, offset = { x: 34, y: 34 }) {
     copy.id = uid(node.type);
     copy.x = (copy.x || 0) + offset.x;
     copy.y = (copy.y || 0) + offset.y;
-    copy.title = `${copy.title || typeNames[copy.type] || '节点'} 鍓湰`;
+    copy.title = `${copy.title || typeNames[copy.type] || '节点'} 副本`;
     if (copy.members) copy.members = copy.members.map(memberId => idMap.get(memberId) || memberId);
     idMap.set(node.id, copy.id);
     cloned.push(copy);
@@ -2136,6 +2156,7 @@ async function init() {
 }
 
 init();
+
 
 
 

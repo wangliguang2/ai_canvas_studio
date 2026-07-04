@@ -1,4 +1,6 @@
-﻿const DEFAULT_CONFIG = {
+﻿import { getStore } from "@netlify/blobs";
+
+const DEFAULT_CONFIG = {
   apis: {
     maas: {
       baseUrl: "https://zhenze-huhehaote.cmecloud.cn/api/v3",
@@ -83,6 +85,17 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function imageStore() {
+  return getStore("ai-canvas-images", { consistency: "strong" });
+}
+
+async function storeImageFromBase64(b64: string, req: Request) {
+  const id = `img_${crypto.randomUUID().replace(/-/g, "")}.png`;
+  const bytes = Buffer.from(b64, "base64");
+  await imageStore().set(id, bytes, { metadata: { contentType: "image/png" } });
+  return new URL(`/api/image/${id}`, req.url).pathname;
+}
+
 function imageSize(ratio: string, quality: string) {
   const longEdge = { "1k": 1024, "2k": 1536, "4k": 2048 }[String(quality || "2k").toLowerCase()] || 1536;
   const map: Record<string, [number, number]> = {
@@ -163,7 +176,7 @@ async function handleGenerate(req: Request) {
 
   const item = (result.data || [])[0] || {};
   let url = item.url || "";
-  if (!url && item.b64_json) url = `data:image/png;base64,${item.b64_json}`;
+  if (!url && item.b64_json) url = await storeImageFromBase64(item.b64_json, req);
   if (!url) return json({ ok: false, error: "Image API response has no url/b64_json", raw: result }, 502);
   return json({ ok: true, url, model: payload.model, alias: model });
 }
@@ -173,6 +186,17 @@ export default async (req: Request) => {
   const path = url.pathname;
   try {
     if (req.method === "GET" && path === "/api/config") return json(configFromEnv());
+    if (req.method === "GET" && path.startsWith("/api/image/")) {
+      const key = decodeURIComponent(path.split("/").pop() || "");
+      const image = await imageStore().get(key, { type: "arrayBuffer" });
+      if (!image) return new Response("Not found", { status: 404 });
+      return new Response(image, {
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
     if (req.method === "GET" && path === "/api/tasks") return json({ tasks: {} });
     if (req.method === "GET" && path.startsWith("/api/task/")) return json({ status: "not_found" });
     if (req.method === "POST" && path === "/api/config") {
@@ -190,3 +214,4 @@ export default async (req: Request) => {
 export const config = {
   path: "/api/*",
 };
+
