@@ -330,7 +330,7 @@ function render() {
 
 function nodeHTML(node) {
   const title = escapeHtml(node.title || typeNames[node.type] || '节点');
-  const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="删除">脳</button></div>`;
+  const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="删除">×</button></div>`;
   let body = '';
   if (node.type === 'group') {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
@@ -501,8 +501,9 @@ function renderParamPanel() {
 function referenceImageStripHTML(node) {
   const refs = referencesForNode(node.id).filter(r => r.kind === 'image');
   const refStrip = refs.map((ref, index) => `
-    <div class="image-ref-card" draggable="true" data-ref-index="${index}">
+    <div class="image-ref-card" draggable="true" data-ref-index="${index}" data-ref-node-id="${escapeHtml(ref.nodeId || '')}">
       <img class="image-ref-thumb" src="${ref.url}" alt="">
+      <button class="image-ref-delete" data-delete-ref title="移除参考图">×</button>
       <span>图片${index + 1}</span>
     </div>
   `).join('');
@@ -1778,6 +1779,23 @@ function bindEvents() {
     targetNode.refOrder = ids;
     render();
     saveCanvas();
+  });
+
+  els.world.addEventListener('click', event => {
+    const deleteRef = event.target.closest('[data-delete-ref]');
+    if (!deleteRef) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+    const card = event.target.closest('[data-ref-node-id]');
+    const refId = card?.dataset.refNodeId;
+    if (!node || !refId) return;
+    state.links = state.links.filter(link => !(link.from === refId && link.to === node.id));
+    node.refOrder = (node.refOrder || []).filter(id => id !== refId);
+    render();
+    saveCanvas();
+    setStatus('参考图已移除');
   });
 
   els.world.addEventListener('click', event => {
