@@ -235,6 +235,11 @@ function normalizeNode(node) {
   if (['t2v', 'i2v'].includes(node.type)) {
     node.model = 'doubao-seedance-2.0';
   }
+  if (['t2i', 'i2i'].includes(node.type) && (node.resultUrl || node.url) && node.taskStatus === 'succeeded') {
+    node.taskStatus = '';
+    node.progressPercent = 0;
+    node.progressText = '';
+  }
   if (['t2i', 'i2i'].includes(node.type) && ['queued', 'running', 'creating'].includes(node.taskStatus) && !node.taskId) {
     node.taskStatus = 'failed';
     node.progressPercent = 100;
@@ -363,13 +368,17 @@ function imageGeneratorHTML(node) {
   const output = node.resultUrl
     ? `<img class="image-output" src="${node.resultUrl}" alt="" draggable="false">`
     : '<div class="image-output-empty">Image</div>';
-  const download = node.resultUrl ? `<a class="node-download" href="${node.resultUrl}" download title="下载图片">下载</a>` : '';
-  const status = node.taskStatus ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>` : '';
+  const download = node.resultUrl ? `<button class="node-download" data-download-image title="下载图片">下载</button>` : '';
+  const status = node.taskStatus && node.taskStatus !== 'succeeded'
+    ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>`
+    : '';
   return `<div class="image-node-preview">${output}${download}${status}</div>`;
 }
 
 function imageParamPanelHTML(node) {
-  const status = node.taskStatus ? `<div class="node-progress ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node, true)}</div>` : '';
+  const status = node.taskStatus && node.taskStatus !== 'succeeded'
+    ? `<div class="node-progress ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node, true)}</div>`
+    : '';
   return `
     <div class="image-params">
       ${node.type === 'i2i' ? referenceImageStripHTML(node) : ''}
@@ -1029,9 +1038,9 @@ async function generateImageFromNode(nodeId) {
       node.resultUrl = data.url;
       node.url = data.url;
       node.mime = 'image/png';
-      node.taskStatus = 'succeeded';
-      node.progressPercent = 100;
-      node.progressText = '生成成功';
+      node.taskStatus = '';
+      node.progressPercent = 0;
+      node.progressText = '';
       addGenerationHistory({
         title: `${node.model || 'image2'} 输出`,
         kind: node.type === 'i2i' ? '图生图' : '文生图',
@@ -1040,12 +1049,42 @@ async function generateImageFromNode(nodeId) {
       });
       render();
       saveCanvas();
+      setStatus('图片生成成功');
     }
   } catch (err) {
     node.taskStatus = 'failed';
     node.progressText = `提交失败：${err.message}`;
     render();
     saveCanvas();
+  }
+}
+
+async function downloadImageForNode(nodeId) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  const url = node?.resultUrl || node?.url;
+  if (!url) return;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = `${node.title || 'ai-canvas-image'}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+    setStatus('图片已下载');
+  } catch (err) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${node.title || 'ai-canvas-image'}.png`;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus(`下载已打开：${err.message}`);
   }
 }
 
@@ -1717,6 +1756,14 @@ function bindEvents() {
     targetNode.refOrder = ids;
     render();
     saveCanvas();
+  });
+
+  els.world.addEventListener('click', event => {
+    const download = event.target.closest('[data-download-image]');
+    if (!download) return;
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    downloadImageForNode(nodeEl.dataset.id);
   });
 
   els.world.addEventListener('click', event => {
