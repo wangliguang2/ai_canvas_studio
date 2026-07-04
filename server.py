@@ -292,6 +292,99 @@ def maas_model_name(config: dict) -> str:
     return "doubao-seedance-2.0" if "doubao-seedance-2.0" in models else models[0]
 
 
+def normalize_ark_base_url(value: str) -> str:
+    base = (value or "https://ark.cn-beijing.volces.com/api/v3").strip().rstrip("/")
+    if base.endswith("/contents/generations/tasks"):
+        return base.rsplit("/contents/generations/tasks", 1)[0]
+    return base
+
+
+def ark_task_endpoint(base_url: str) -> str:
+    return f"{normalize_ark_base_url(base_url)}/contents/generations/tasks"
+
+
+def ark_request(method: str, url: str, api_key: str, payload: dict | None = None) -> dict:
+    body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            text = resp.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Ark API HTTP {exc.code}: {detail[:1000]}") from exc
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
+def first_value(data: object, names: tuple[str, ...]) -> object:
+    if isinstance(data, dict):
+        for name in names:
+            if name in data and data[name] not in (None, ""):
+                return data[name]
+        for value in data.values():
+            found = first_value(value, names)
+            if found not in (None, ""):
+                return found
+    if isinstance(data, list):
+        for value in data:
+            found = first_value(value, names)
+            if found not in (None, ""):
+                return found
+    return None
+
+
+def extract_remote_task_id(result: dict) -> str:
+    value = first_value(result, ("task_id", "taskId", "id"))
+    return str(value or "")
+
+
+def extract_video_status(result: dict) -> str:
+    status = first_value(result, ("status", "task_status", "state"))
+    text = str(status or "").lower()
+    if text in {"success", "succeeded", "done", "completed"}:
+        return "succeeded"
+    if text in {"fail", "failed", "error"}:
+        return "failed"
+    if text in {"queued", "pending", "created"}:
+        return "queued"
+    if text in {"running", "processing", "generating"}:
+        return "running"
+    return text or "running"
+
+
+def extract_video_url(result: dict) -> str:
+    value = first_value(result, ("video_url", "videoUrl", "url", "download_url", "downloadUrl"))
+    if isinstance(value, str) and value.startswith(("http://", "https://")):
+        return value
+    return ""
+
+
+def download_ark_video(url: str, task_id: str) -> str:
+    output_path = OUTPUTS / f"{task_id}.mp4"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        output_path.write_bytes(resp.read())
+    return public_url(output_path)
+
+
+def ark_video_payload(request_data: dict, model: str) -> dict:
+    payload = json.loads(json.dumps(request_data))
+    payload["model"] = model
+    return payload
+
+
 def make_client(config: dict, model: str) -> MaasSeedanceClient:
     if MaasSeedanceClient is None:
         raise RuntimeError("maas_seedance package is not installed")
@@ -312,7 +405,42 @@ def run_video_task(task_id: str, config: dict, request_data: dict, model: str, p
     TASKS[task_id]["status"] = "creating"
     try:
         if provider == "ark":
-            raise RuntimeError("火山算力视频生成还没有接入本地后端。请先在设置里切回“移动算力”，或等火山 CreateVideoGenTask 接口接入后再用。")
+            ark = config.get("apis", {}).get("ark", {})
+            api_key = (ark.get("apiKey") or "").strip()
+            if not api_key:
+                raise RuntimeError("火山算力 API Key 为空，请在设置里填写 ARK_API_KEY。")
+            base_url = normalize_ark_base_url(ark.get("baseUrl") or ark.get("website") or "")
+            payload = ark_video_payload(request_data, model)
+            result = ark_request("POST", ark_task_endpoint(base_url), api_key, payload)
+            remote_task_id = extract_remote_task_id(result)
+            if not remote_task_id:
+                raise RuntimeError(f"火山算力没有返回任务 ID：{json.dumps(result, ensure_ascii=False)[:1000]}")
+            TASKS[task_id].update({
+                "remoteTaskId": remote_task_id,
+                "rawCreateResponse": result,
+                "status": "running",
+                "provider": "ark",
+            })
+            while True:
+                time.sleep(8)
+                info = ark_request("GET", f"{ark_task_endpoint(base_url)}/{remote_task_id}", api_key)
+                TASKS[task_id]["remoteInfo"] = info
+                status = extract_video_status(info)
+                video_url = extract_video_url(info)
+                if status == "succeeded":
+                    local_url = download_ark_video(video_url, task_id) if video_url else ""
+                    TASKS[task_id].update({
+                        "status": "succeeded" if local_url else "failed",
+                        "url": local_url or video_url,
+                        "remoteUrl": video_url,
+                        "error": "" if local_url or video_url else "火山任务成功，但没有找到视频下载地址",
+                    })
+                    return
+                if status == "failed":
+                    TASKS[task_id].update({"status": "failed", "error": json.dumps(info, ensure_ascii=False)[:1000]})
+                    return
+                TASKS[task_id]["status"] = status or "running"
+            return
         client = make_client(config, model)
         remote_task_id = client.create_video_generation_task(request_data)
         TASKS[task_id].update({"remoteTaskId": remote_task_id, "status": "running"})
