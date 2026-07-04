@@ -694,6 +694,20 @@ function updateNodeInfo() {
   `;
 }
 
+
+async function readJsonResponse(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    return {
+      ok: false,
+      error: `HTTP ${res.status} 返回的不是 JSON：${plain.slice(0, 220) || text.slice(0, 220)}`,
+      raw: text,
+    };
+  }
+}
 function escapeHtml(text) {
   return String(text || '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -723,7 +737,7 @@ async function uploadFiles(files, point) {
   for (const file of files) form.append('files', file);
   setStatus('上传中...');
   const res = await fetch('/api/upload', { method: 'POST', body: form });
-  const data = await res.json();
+  const data = await readJsonResponse(res);
   let x = point.x;
   let y = point.y;
   const created = [];
@@ -862,7 +876,7 @@ async function generate() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await readJsonResponse(res);
     if (!res.ok || data.unsupported) {
       const pretty = JSON.stringify(data.payload || data, null, 2);
       const p = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
@@ -921,7 +935,7 @@ async function generateFromNode(nodeId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await readJsonResponse(res);
     if (!res.ok) throw new Error(data.error || JSON.stringify(data));
     node.taskId = data.taskId;
     node.taskStatus = 'running';
@@ -981,7 +995,7 @@ async function generateImageFromNode(nodeId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await readJsonResponse(res);
     if (progressTimer) window.clearInterval(progressTimer);
     if (!res.ok || data.unsupported) {
       node.taskStatus = 'failed';
@@ -1106,7 +1120,7 @@ function progressText(task) {
 async function pollTasks() {
   try {
     const res = await fetch('/api/tasks');
-    const data = await res.json();
+    const data = await readJsonResponse(res);
     const tasks = Object.values(data.tasks || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     if (els.tasks) els.tasks.innerHTML = tasks.map(task => taskHTML(task)).join('') || '暂无任务';
   } catch {
@@ -2122,6 +2136,7 @@ async function init() {
 }
 
 init();
+
 
 
 
