@@ -520,12 +520,21 @@ function videoGeneratorHTML(node) {
   const preview = src
     ? `<video class="node-video-output" src="${src}" controls></video>`
     : '<div class="node-video-empty">视频预览</div>';
-  const status = node.taskStatus ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}</div>` : '';
+  const status = node.taskStatus
+    ? `<div class="preview-status ${node.taskStatus}">
+        <div>${escapeHtml(node.progressText || node.taskStatus)}</div>
+        ${progressBarHTML(node, true)}
+      </div>`
+    : '';
   return `<div class="node-preview-shell">${preview}${status}</div>`;
 }
 
 function videoParamPanelHTML(node) {
-  const status = node.taskStatus ? `<div class="node-progress ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}</div>` : '';
+  const durationOptions = Array.from({ length: 12 }, (_, index) => index + 4);
+  const status = node.taskStatus ? `<div class="node-progress ${node.taskStatus}">
+    <div>${escapeHtml(node.progressText || node.taskStatus)}</div>
+    ${progressBarHTML(node, true)}
+  </div>` : '';
   return `
     ${node.type === 'i2v' ? referenceImageStripHTML(node) : ''}
     ${node.type === 'i2v' ? `
@@ -541,7 +550,9 @@ function videoParamPanelHTML(node) {
       </div>
       <div>
         <label class="node-label">时长</label>
-        <input data-field="duration" type="number" min="1" max="15" value="${escapeHtml(node.duration)}">
+        <select data-field="duration">
+          ${durationOptions.map(v => `<option value="${v}" ${Number(node.duration || 5) === v ? 'selected' : ''}>${v} 秒</option>`).join('')}
+        </select>
       </div>
       <div>
         <label class="node-label">Resolution</label>
@@ -1046,6 +1057,7 @@ async function generateFromNode(nodeId) {
   node.model = videoModelName();
   node.taskStatus = 'queued';
   node.progressText = '正在提交生成任务...';
+  node.progressPercent = 12;
   node.resultUrl = '';
   render();
   saveCanvas();
@@ -1066,6 +1078,13 @@ async function generateFromNode(nodeId) {
 
   let progressTimer = null;
   try {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    node.taskStatus = 'running';
+    node.progressText = '正在创建视频任务...';
+    node.progressPercent = 28;
+    render();
+    saveCanvas();
+    progressTimer = startSoftProgress(node.id, 28, 90);
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1076,6 +1095,7 @@ async function generateFromNode(nodeId) {
     node.taskId = data.taskId;
     node.taskStatus = 'running';
     node.progressText = `生成中：${data.taskId}`;
+    node.progressPercent = Math.max(35, Number(node.progressPercent || 0));
     render();
     saveCanvas();
     pollNodeTask(node.id, data.taskId);
@@ -1822,7 +1842,7 @@ function bindEvents() {
     const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
     if (event.target.type === 'checkbox') {
       node[field] = event.target.checked;
-    } else if (event.target.type === 'number') {
+    } else if (event.target.type === 'number' || field === 'duration') {
       node[field] = Number(event.target.value);
     } else {
       node[field] = event.target.value;
@@ -1841,7 +1861,7 @@ function bindEvents() {
     const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
     if (event.target.type === 'checkbox') {
       node[field] = event.target.checked;
-    } else if (event.target.type === 'number') {
+    } else if (event.target.type === 'number' || field === 'duration') {
       node[field] = Number(event.target.value);
     } else {
       node[field] = event.target.value;
