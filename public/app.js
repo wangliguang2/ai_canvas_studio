@@ -1034,6 +1034,16 @@ async function generateImageFromNode(nodeId) {
       saveCanvas();
       return;
     }
+    if (data.taskId) {
+      node.taskId = data.taskId;
+      node.taskStatus = 'running';
+      node.progressText = '云端后台生成中...';
+      node.progressPercent = 45;
+      render();
+      saveCanvas();
+      pollNodeTask(node.id, data.taskId);
+      return;
+    }
     if (data.url) {
       node.resultUrl = data.url;
       node.url = data.url;
@@ -1136,17 +1146,22 @@ async function pollNodeTask(nodeId, taskId) {
     node.progressText = progressText(task);
     if (task.status === 'succeeded' && task.url) {
       node.resultUrl = task.url;
-      node.mime = 'video/mp4';
-      node.title = `${node.model || 'doubao-seedance-2.0'} 输出`;
-      node.progressText = '生成成功';
+      node.url = task.url;
+      const isImageNode = ['t2i', 'i2i'].includes(node.type);
+      node.mime = isImageNode ? 'image/png' : 'video/mp4';
+      node.title = `${node.model || (isImageNode ? 'image2' : 'doubao-seedance-2.0')} 输出`;
+      node.taskStatus = isImageNode ? '' : 'succeeded';
+      node.progressPercent = isImageNode ? 0 : 100;
+      node.progressText = isImageNode ? '' : '生成成功';
       addGenerationHistory({
         title: node.title,
-        kind: node.type === 'i2v' ? '图生视频' : '文生视频',
+        kind: node.type === 'i2i' ? '图生图' : node.type === 't2i' ? '文生图' : node.type === 'i2v' ? '图生视频' : '文生视频',
         url: task.url,
-        mime: 'video/mp4',
+        mime: node.mime,
       });
       render();
       saveCanvas();
+      if (isImageNode) setStatus('图片生成成功');
       return;
     }
     if (task.status === 'failed') {
@@ -1171,9 +1186,9 @@ function progressText(task) {
   if (task.status === 'queued') return '排队中';
   if (task.status === 'creating') return '正在创建任务';
   if (task.status === 'running') return '生成中';
-  if (task.status === 'succeeded') return '生成鎴愬姛';
+  if (task.status === 'succeeded') return '生成成功';
   if (task.status === 'failed') return task.error || '生成失败';
-  return `鐘舵€侊細${task.status}`;
+  return `状态：${task.status}`;
 }
 
 async function pollTasks() {
@@ -1187,13 +1202,20 @@ async function pollTasks() {
   }
 }
 
+function resumeNodeTasks() {
+  for (const node of state.nodes) {
+    if (!node.taskId || !['queued', 'running', 'creating'].includes(node.taskStatus)) continue;
+    pollNodeTask(node.id, node.taskId);
+  }
+}
+
 function taskHTML(task) {
-  const url = task.url ? `<br><a href="${task.url}" target="_blank">鎵撳紑缁撴灉</a>` : '';
+  const url = task.url ? `<br><a href="${task.url}" target="_blank">打开结果</a>` : '';
   const err = task.error ? `<br><span style="color:#ef9aa0">${escapeHtml(task.error).slice(0, 160)}</span>` : '';
   return `<div class="task">
     <strong>${escapeHtml(task.model || '')}</strong><br>
     ${escapeHtml(task.id)}<br>
-    鐘舵€侊細${escapeHtml(task.status || '')}${url}${err}
+    状态：${escapeHtml(task.status || '')}${url}${err}
   </div>`;
 }
 
@@ -2197,12 +2219,14 @@ async function init() {
   applyTransform();
   bindEvents();
   loadCanvas();
+  resumeNodeTasks();
   render();
   setInterval(pollTasks, 5000);
   pollTasks();
 }
 
 init();
+
 
 
 

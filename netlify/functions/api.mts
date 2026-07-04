@@ -89,6 +89,10 @@ function imageStore() {
   return getStore("ai-canvas-images", { consistency: "strong" });
 }
 
+function taskStore() {
+  return getStore("ai-canvas-tasks", { consistency: "strong" });
+}
+
 async function storeImageFromBase64(b64: string, req: Request) {
   const id = `img_${crypto.randomUUID().replace(/-/g, "")}.png`;
   const bytes = Buffer.from(b64, "base64");
@@ -150,35 +154,27 @@ async function handleGenerate(req: Request) {
     return json({ ok: false, error: `${model} API Key is empty. Open settings and fill it first.` }, 400);
   }
 
-  const payload: any = {
-    model: api.modelName || model,
-    prompt: body.prompt || "",
-    n: Number(body.imageCount || 1),
-    size: imageSize(body.ratio || "16:9", body.quality || "2k"),
+  const taskId = `image_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const task = {
+    id: taskId,
+    status: "queued",
+    mode,
+    model,
+    createdAt: Date.now(),
   };
-  const refs = Array.isArray(body.references) ? body.references : [];
-  if (refs.length) payload.references = refs.map((r: any) => r.url).filter(Boolean);
+  await taskStore().setJSON(taskId, task);
 
-  const response = await fetch(imageEndpoint(api), {
+  const backgroundResponse = await fetch(new URL("/.netlify/functions/image-task-background", req.url), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ taskId, body, config }),
   });
-  const text = await response.text();
-  let result: any;
-  try { result = JSON.parse(text); } catch { result = { raw: text }; }
-  if (!response.ok) {
-    return json({ ok: false, error: `Image API HTTP ${response.status}: ${text.slice(0, 500)}`, payload }, 502);
+  if (!backgroundResponse.ok && backgroundResponse.status !== 202) {
+    const error = `后台任务启动失败：HTTP ${backgroundResponse.status}`;
+    await taskStore().setJSON(taskId, { ...task, status: "failed", error });
+    return json({ ok: false, error }, 502);
   }
-
-  const item = (result.data || [])[0] || {};
-  let url = item.url || "";
-  if (!url && item.b64_json) url = await storeImageFromBase64(item.b64_json, req);
-  if (!url) return json({ ok: false, error: "Image API response has no url/b64_json", raw: result }, 502);
-  return json({ ok: true, url, model: payload.model, alias: model });
+  return json({ ok: true, taskId, status: "queued" });
 }
 
 export default async (req: Request) => {
@@ -198,7 +194,11 @@ export default async (req: Request) => {
       });
     }
     if (req.method === "GET" && path === "/api/tasks") return json({ tasks: {} });
-    if (req.method === "GET" && path.startsWith("/api/task/")) return json({ status: "not_found" });
+    if (req.method === "GET" && path.startsWith("/api/task/")) {
+      const taskId = decodeURIComponent(path.split("/").pop() || "");
+      const task = await taskStore().get(taskId, { type: "json" });
+      return json(task || { status: "not_found" });
+    }
     if (req.method === "POST" && path === "/api/config") {
       const body = await req.json().catch(() => ({}));
       return json({ ok: true, config: deepMerge(configFromEnv(), body) });
