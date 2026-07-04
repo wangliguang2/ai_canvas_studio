@@ -223,8 +223,29 @@ function previewHeightForNode(node) {
   return 32 + Math.max(90, Math.round((node.w || 260) / previewRatioForNode(node)));
 }
 
+function imageRatioForNode(node) {
+  const ratio = Number(node.imageRatio || node.naturalRatio || 0);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9;
+}
+
+function shouldKeepImageRatio(node) {
+  return node?.type === 'image' && Number(node.imageRatio || node.naturalRatio || 0) > 0;
+}
+
+function imageNodeHeight(node) {
+  const headerH = 32;
+  const bodyPaddingX = 20;
+  const bodyPaddingY = 20;
+  const pillH = node.role ? 30 : 0;
+  const imageW = Math.max(80, (node.w || 220) - bodyPaddingX);
+  return headerH + bodyPaddingY + Math.max(70, Math.round(imageW / imageRatioForNode(node))) + pillH;
+}
+
 function normalizeNode(node) {
   if (!node) return node;
+  if (node.type === 'image' && node.imageRatio) {
+    node.imageRatio = imageRatioForNode(node);
+  }
   if (['t2i', 'i2i'].includes(node.type) && !['banana', 'image2'].includes(node.model)) {
     node.model = 'image2';
   }
@@ -281,8 +302,16 @@ function addNode(type, x, y, data = {}) {
     progressText: data.progressText || '',
     progressPercent: data.progressPercent || 0,
     resultUrl: data.resultUrl || '',
+    imageRatio: data.imageRatio || data.naturalRatio || 0,
+    naturalWidth: data.naturalWidth || 0,
+    naturalHeight: data.naturalHeight || 0,
     createdAt: Date.now(),
   };
+  if (node.type === 'image' && node.imageRatio) {
+    node.imageRatio = imageRatioForNode(node);
+    if (!data.w) node.w = Math.min(420, Math.max(220, Math.round(180 * node.imageRatio)));
+    if (!data.h) node.h = imageNodeHeight(node);
+  }
   state.nodes.push(node);
   state.selectedId = node.id;
   state.selectedLinkId = null;
@@ -314,18 +343,46 @@ function render() {
     if (isGeneratorType(node.type)) {
       node.h = previewHeightForNode(node);
       div.style.height = `${node.h}px`;
+    } else if (shouldKeepImageRatio(node)) {
+      node.h = imageNodeHeight(node);
+      div.style.height = `${node.h}px`;
     } else if (node.h) {
       div.style.height = `${node.h}px`;
     }
     div.dataset.id = node.id;
     div.innerHTML = nodeHTML(node);
     els.world.appendChild(div);
+    attachImageRatioCapture(div, node);
   }
   renderParamPanel();
   renderLinks();
   updateNodeInfo();
   renderAssets();
   renderHistory();
+}
+
+function attachImageRatioCapture(div, node) {
+  if (node.type !== 'image') return;
+  const img = div.querySelector('img[data-capture-ratio]');
+  if (!img) return;
+  const capture = () => {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const ratio = img.naturalWidth / img.naturalHeight;
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    if (Math.abs(Number(node.imageRatio || 0) - ratio) < 0.01) return;
+    node.imageRatio = ratio;
+    node.naturalWidth = img.naturalWidth;
+    node.naturalHeight = img.naturalHeight;
+    node.h = imageNodeHeight(node);
+    div.style.height = `${node.h}px`;
+    scheduleRenderLinks();
+    saveCanvas();
+  };
+  if (img.complete) {
+    capture();
+  } else {
+    img.addEventListener('load', capture, { once: true });
+  }
 }
 
 function nodeHTML(node) {
@@ -335,7 +392,7 @@ function nodeHTML(node) {
   if (node.type === 'group') {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
   } else if (node.type === 'image' && node.url) {
-    body = `<img src="${node.url}" alt="" draggable="false"><div class="pill">${escapeHtml(node.role || 'reference_image')}</div>`;
+    body = `<img src="${node.url}" alt="" draggable="false" data-capture-ratio><div class="pill">${escapeHtml(node.role || 'reference_image')}</div>`;
   } else if (node.type === 'video' && node.url) {
     body = `<video src="${node.url}" controls></video><div class="pill">${escapeHtml(node.role || 'reference_video')}</div>`;
   } else if (node.type === 'audio' && node.url) {
@@ -761,25 +818,50 @@ function showMenu(x, y, options = {}) {
   renderLinks();
 }
 
+function imageMetaForFile(file) {
+  if (!file?.type?.startsWith('image/')) return Promise.resolve({});
+  return new Promise(resolve => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    const finish = meta => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(meta);
+    };
+    img.onload = () => {
+      const ratio = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 0;
+      finish({
+        imageRatio: ratio,
+        naturalWidth: img.naturalWidth || 0,
+        naturalHeight: img.naturalHeight || 0,
+      });
+    };
+    img.onerror = () => finish({});
+    img.src = objectUrl;
+  });
+}
+
 async function uploadFiles(files, point) {
   if (!files.length) return;
+  const sourceFiles = [...files];
+  const metas = await Promise.all(sourceFiles.map(file => imageMetaForFile(file)));
   const form = new FormData();
-  for (const file of files) form.append('files', file);
+  for (const file of sourceFiles) form.append('files', file);
   setStatus('上传中...');
   const res = await fetch('/api/upload', { method: 'POST', body: form });
   const data = await readJsonResponse(res);
   let x = point.x;
   let y = point.y;
   const created = [];
-  for (const file of data.files || []) {
+  for (const [index, file] of (data.files || []).entries()) {
     const node = addNode(file.kind === 'file' ? 'text' : file.kind, x, y, {
       title: file.name,
       url: file.url,
       mime: file.mime,
       kind: file.kind,
+      ...(metas[index] || {}),
     });
     created.push(node);
-    x += 250;
+    x += Math.max(250, (node.w || 220) + 28);
   }
   if (state.pendingLink && created[0]) {
     connectPendingTo(created[0].id);
@@ -1492,6 +1574,8 @@ function bindEvents() {
       node.w = Math.max(180, (node.w || resizingNode.startW) + dx / state.scale);
       node.h = isGeneratorType(node.type)
         ? previewHeightForNode(node)
+        : shouldKeepImageRatio(node)
+          ? imageNodeHeight(node)
         : Math.max(110, (node.h || resizingNode.startH) + dy / state.scale);
       resizingNode.el.style.width = `${node.w}px`;
       resizingNode.el.style.height = `${node.h}px`;
@@ -2053,7 +2137,11 @@ function toggleMaximizeSelectedNode() {
     h: node.h,
   };
   node.w = targetW;
-  node.h = isGeneratorType(node.type) ? previewHeightForNode(node) : targetH;
+  node.h = isGeneratorType(node.type)
+    ? previewHeightForNode(node)
+    : shouldKeepImageRatio(node)
+      ? imageNodeHeight(node)
+      : targetH;
   node.x = center.x - node.w / 2;
   node.y = center.y - node.h / 2;
   updateGroupsForMembers([node.id]);
