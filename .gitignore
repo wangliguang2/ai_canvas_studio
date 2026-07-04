@@ -1,0 +1,12 @@
+﻿config.json
+.env
+.env.*
+tmp/
+uploads/
+outputs/
+aicc_log/
+jsc_log/
+__pycache__/
+*.pyc
+*.pem
+*.key

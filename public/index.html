@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Canvas Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="rail">
+      <button class="rail-item active" data-tab="assets" title="资产">
+        <span>▣</span>
+        <em>资产</em>
+      </button>
+      <button class="rail-item" data-tab="workflow" title="工作流">
+        <span>⌘</span>
+        <em>工作流</em>
+      </button>
+      <button class="rail-item" data-tab="history" title="历史">
+        <span>◷</span>
+        <em>历史</em>
+      </button>
+      <button id="settingsToggle" class="rail-item" title="设置">
+        <span>⚙</span>
+        <em>设置</em>
+      </button>
+    </aside>
+
+    <aside class="leftbar">
+      <section class="side-tab active" data-panel="assets">
+        <div class="asset-tabs">
+          <button class="active" data-asset-filter="all">全部</button>
+          <button data-asset-filter="person">人物</button>
+          <button data-asset-filter="scene">场景</button>
+          <button data-asset-filter="object">物品</button>
+          <button data-asset-filter="style">风格</button>
+          <button data-asset-filter="other">其他</button>
+        </div>
+        <div id="assetList" class="asset-list"></div>
+      </section>
+
+      <section class="side-tab" data-panel="workflow">
+        <div class="mini-title">工作流</div>
+        <div class="tool-section">
+          <button data-action="addPrompt">提示词节点</button>
+          <button data-action="addT2V">视频生成</button>
+          <button data-action="addText">文本节点</button>
+          <button data-action="save">保存当前画布</button>
+        </div>
+      </section>
+
+      <section class="side-tab" data-panel="history">
+        <div class="mini-title">历史</div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <div class="hint">右键画布可添加节点、上传素材。拖拽空白处移动画布，滚轮缩放。</div>
+    </aside>
+
+    <main class="stage-wrap">
+      <div class="topbar">
+        <div class="segmented">
+          <button class="active" data-mode="t2i">文生图</button>
+          <button data-mode="i2i">图生图</button>
+          <button data-mode="t2v">文生视频</button>
+          <button data-mode="i2v">图生视频</button>
+        </div>
+        <div class="status" id="status">就绪</div>
+        <div class="top-actions">
+          <button data-action="fit">回到中心</button>
+          <button data-action="save">保存画布</button>
+          <button data-action="clear">清空画布</button>
+        </div>
+      </div>
+      <div id="stage" class="stage">
+        <svg id="links" class="links"></svg>
+        <div id="world" class="world"></div>
+        <div id="selectionBox" class="selection-box hidden"></div>
+      </div>
+    </main>
+
+    <section id="settings" class="settings hidden">
+      <div class="settings-card">
+        <div class="panel-head">
+          <h2>接口与模型设置</h2>
+          <button id="closeSettings">关闭</button>
+        </div>
+        <div class="settings-grid">
+          <div>
+            <h3>Seedance2 视频</h3>
+            <label>API 地址</label>
+            <input id="maasBaseUrl">
+            <label>API Key</label>
+            <input id="maasApiKey" type="password">
+            <label>网站</label>
+            <input id="maasWebsite">
+            <label>视频模型名</label>
+            <input id="videoModels">
+          </div>
+          <div>
+            <h3>生图模型</h3>
+            <label>Banana API Key</label>
+            <input id="bananaApiKey" type="password">
+            <label>Banana 网站</label>
+            <input id="bananaWebsite">
+            <label>Image2 API Key</label>
+            <input id="image2ApiKey" type="password">
+            <label>Image2 网站</label>
+            <input id="image2Website">
+            <label>Image2 实际模型 ID</label>
+            <input id="image2ModelName" placeholder="gpt-image-2">
+            <label>生图模型名</label>
+            <input id="imageModels">
+          </div>
+        </div>
+        <button id="saveSettings" class="primary">保存设置</button>
+      </div>
+    </section>
+
+    <div id="menu" class="context-menu hidden">
+      <div class="menu-title" id="menuTitle">添加节点</div>
+      <button data-menu="text">文本</button>
+      <button data-menu="upload">上传</button>
+      <div class="sep"></div>
+      <button data-menu="t2i">文生图节点</button>
+      <button data-menu="i2i">图生图节点</button>
+      <button data-menu="t2v">文生视频</button>
+      <button data-menu="i2v">图生视频</button>
+      <div class="sep selected-menu"></div>
+      <button class="selected-menu" data-menu="arrange">整理节点</button>
+      <button class="selected-menu" data-menu="group">打组</button>
+    </div>
+
+    <input id="fileInput" type="file" multiple accept="image/*,video/*,audio/*" hidden>
+    <input id="imageInput" type="file" multiple accept="image/*" hidden>
+    <input id="videoInput" type="file" multiple accept="video/*" hidden>
+    <input id="audioInput" type="file" multiple accept="audio/*" hidden>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

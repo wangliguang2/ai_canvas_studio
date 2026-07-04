@@ -1,0 +1,41 @@
+﻿{
+    "apis":  {
+                 "maas":  {
+                              "baseUrl":  "https://zhenze-huhehaote.cmecloud.cn/api/v3",
+                              "apiKey":  "",
+                              "website":  "https://zhenze-huhehaote.cmecloud.cn",
+                              "enableVideoEncrypt":  true,
+                              "publicKeyPath":  "./tmp/seedance_pub.pem",
+                              "privateKeyPath":  "./tmp/seedance_priv.pem"
+                          },
+                 "banana":  {
+                                "baseUrl":  "",
+                                "apiKey":  "",
+                                "website":  "",
+                                "modelName":  "banana"
+                            },
+                 "image2":  {
+                                "baseUrl":  "",
+                                "apiKey":  "",
+                                "website":  "https://yungpt.com",
+                                "modelName":  "gpt-image-2"
+                            }
+             },
+    "models":  {
+                   "video":  [
+                                 "doubao-seedance-2.0"
+                             ],
+                   "image":  [
+                                 "banana",
+                                 "image2"
+                             ]
+               },
+    "defaults":  {
+                     "videoModel":  "doubao-seedance-2.0",
+                     "imageModel":  "banana",
+                     "ratio":  "16:9",
+                     "duration":  8,
+                     "generateAudio":  false,
+                     "watermark":  false
+                 }
+}
