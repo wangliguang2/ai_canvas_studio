@@ -129,7 +129,13 @@ async function handleUpload(req: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const mime = file.type || "application/octet-stream";
     const kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file";
-    const url = `data:${mime};base64,${buffer.toString("base64")}`;
+    let url = `data:${mime};base64,${buffer.toString("base64")}`;
+    if (kind === "image") {
+      const ext = mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "png";
+      const id = `upload_${crypto.randomUUID().replace(/-/g, "")}.${ext}`;
+      await imageStore().set(id, buffer, { metadata: { contentType: mime } });
+      url = `/api/image/${id}`;
+    }
     return { name: file.name || "upload", url, mime, kind };
   }));
   return json({ ok: true, files: uploaded });
@@ -186,9 +192,10 @@ export default async (req: Request) => {
       const key = decodeURIComponent(path.split("/").pop() || "");
       const image = await imageStore().get(key, { type: "arrayBuffer" });
       if (!image) return new Response("Not found", { status: 404 });
+      const contentType = key.endsWith(".jpg") ? "image/jpeg" : key.endsWith(".webp") ? "image/webp" : key.endsWith(".gif") ? "image/gif" : "image/png";
       return new Response(image, {
         headers: {
-          "Content-Type": "image/png",
+          "Content-Type": contentType,
           "Cache-Control": "public, max-age=31536000, immutable",
         },
       });
