@@ -29,3 +29,22 @@ Copy-Item config.example.json config.json
 ## 注意
 
 `config.json`、上传素材、生成结果、临时密钥和日志已加入 `.gitignore`，不要把自己的 key 提交到 GitHub。
+
+## Netlify 部署
+
+项目已包含 `netlify.toml` 和 `netlify/functions/api.mts`，可以部署到 Netlify。
+
+云端环境变量建议填写：
+
+- `IMAGE2_API_KEY`
+- `IMAGE2_WEBSITE`，默认 `https://yungpt.com`
+- `IMAGE2_MODEL_NAME`，默认 `gpt-image-2`
+- `BANANA_API_KEY`
+- `BANANA_WEBSITE`
+- `BANANA_MODEL_NAME`，默认 `banana`
+- `MAAS_API_KEY`
+- `MAAS_BASE_URL`
+
+公开站点不会内置个人 key。别人也可以在网页“设置”里填写自己的 key，配置会保存在自己的浏览器本地。
+
+注意：当前 Netlify 云端函数支持生图接口；Seedance2 视频生成仍建议使用本地 Python 服务，或后续接入专门的长任务后端。

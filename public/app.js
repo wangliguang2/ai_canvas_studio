@@ -70,6 +70,30 @@ function uid(prefix = 'node') {
 function setStatus(text) {
   els.status.textContent = text;
 }
+function mergeConfig(base, patch) {
+  const merged = JSON.parse(JSON.stringify(base || {}));
+  if (!patch || typeof patch !== 'object') return merged;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && merged[key] && typeof merged[key] === 'object') {
+      merged[key] = mergeConfig(merged[key], value);
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function localUserConfig() {
+  try {
+    return JSON.parse(localStorage.getItem('ai_canvas_user_config') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function persistUserConfig(config) {
+  localStorage.setItem('ai_canvas_user_config', JSON.stringify(config));
+}
 
 function screenToWorld(clientX, clientY) {
   const rect = els.stage.getBoundingClientRect();
@@ -829,6 +853,7 @@ async function generate() {
     generateAudio: els.generateAudio.checked,
     watermark: els.watermark.checked,
     references: selectedReferences(),
+    clientConfig: state.config,
   };
   setStatus('鎻愪氦鐢熸垚浠诲姟...');
   try {
@@ -886,6 +911,7 @@ async function generateFromNode(nodeId) {
     generateAudio: !!node.generateAudio,
     watermark: !!node.watermark,
     references: referencesForNode(node.id),
+    clientConfig: state.config,
   };
 
   let progressTimer = null;
@@ -939,6 +965,7 @@ async function generateImageFromNode(nodeId) {
     quality: node.quality || '2k',
     imageCount: Number(node.imageCount || 1),
     references: node.type === 'i2i' ? referencesForNode(node.id) : [],
+    clientConfig: state.config,
   };
   let progressTimer = null;
   try {
@@ -1099,7 +1126,8 @@ function taskHTML(task) {
 
 async function loadConfig() {
   const res = await fetch('/api/config');
-  state.config = await res.json();
+  const remoteConfig = await res.json();
+  state.config = mergeConfig(remoteConfig, localUserConfig());
   applyConfigToUI();
 }
 
@@ -1170,11 +1198,12 @@ async function saveSettings() {
   }
   cfg.defaults.videoModel = 'doubao-seedance-2.0';
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';
+  persistUserConfig(cfg);
   await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cfg),
-  });
+  }).catch(() => {});
   state.config = cfg;
   fillModelSelect();
   els.settings.classList.add('hidden');
@@ -2093,4 +2122,5 @@ async function init() {
 }
 
 init();
+
 

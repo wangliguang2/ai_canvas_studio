@@ -1,0 +1,10 @@
+﻿{
+  "scripts": {
+    "dev": "netlify dev",
+    "deploy": "netlify deploy --prod"
+  },
+  "devDependencies": {
+    "@netlify/functions": "latest",
+    "netlify-cli": "latest"
+  }
+}
