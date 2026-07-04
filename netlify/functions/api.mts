@@ -10,6 +10,12 @@ const DEFAULT_CONFIG = {
       publicKeyPath: "./tmp/seedance_pub.pem",
       privateKeyPath: "./tmp/seedance_priv.pem",
     },
+    ark: {
+      baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      apiKey: "",
+      website: "https://ark.cn-beijing.volces.com",
+      modelName: "doubao-seedance-2-0-260",
+    },
     banana: {
       baseUrl: "",
       apiKey: "",
@@ -29,6 +35,7 @@ const DEFAULT_CONFIG = {
   },
   defaults: {
     videoModel: "doubao-seedance-2.0",
+    videoProvider: "maas",
     imageModel: "banana",
     ratio: "16:9",
     duration: 8,
@@ -61,6 +68,12 @@ function configFromEnv() {
         baseUrl: env("MAAS_BASE_URL", DEFAULT_CONFIG.apis.maas.baseUrl),
         apiKey: env("MAAS_API_KEY"),
         website: env("MAAS_WEBSITE", DEFAULT_CONFIG.apis.maas.website),
+      },
+      ark: {
+        baseUrl: env("ARK_BASE_URL", DEFAULT_CONFIG.apis.ark.baseUrl),
+        apiKey: env("ARK_API_KEY"),
+        website: env("ARK_WEBSITE", DEFAULT_CONFIG.apis.ark.website),
+        modelName: env("ARK_MODEL", DEFAULT_CONFIG.apis.ark.modelName),
       },
       banana: {
         baseUrl: env("BANANA_BASE_URL"),

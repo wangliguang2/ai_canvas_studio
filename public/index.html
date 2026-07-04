@@ -88,7 +88,9 @@
         </div>
         <div class="settings-grid">
           <div>
-            <h3>Seedance2 视频</h3>
+            <h3 class="settings-provider-title">
+              <label><input type="radio" name="videoProvider" id="providerMaas" value="maas"> 移动算力</label>
+            </h3>
             <label>API 地址</label>
             <input id="maasBaseUrl">
             <label>API Key</label>
@@ -97,6 +99,17 @@
             <input id="maasWebsite">
             <label>视频模型名</label>
             <input id="videoModels">
+          </div>
+          <div>
+            <h3 class="settings-provider-title">
+              <label><input type="radio" name="videoProvider" id="providerArk" value="ark"> 火山算力</label>
+            </h3>
+            <label>ARK_BASE_URL <span class="required">*</span></label>
+            <input id="arkBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
+            <label>ARK_API_KEY <span class="required">*</span></label>
+            <input id="arkApiKey" type="password" placeholder="建议用服务器环境变量 ARK_API_KEY">
+            <label>ARK_MODEL <span class="required">*</span></label>
+            <input id="arkModel" placeholder="doubao-seedance-2-0-260">
           </div>
           <div>
             <h3>生图模型</h3>
@@ -137,7 +150,7 @@
     <input id="videoInput" type="file" multiple accept="video/*" hidden>
     <input id="audioInput" type="file" multiple accept="audio/*" hidden>
   </div>
-  <script src="/app.js?v=202607043"></script>
+  <script src="/app.js?v=202607044"></script>
 </body>
 </html>
 

@@ -95,6 +95,28 @@ function persistUserConfig(config) {
   localStorage.setItem('ai_canvas_user_config', JSON.stringify(config));
 }
 
+function normalizeConfigShape(config) {
+  const cfg = config || {};
+  cfg.apis ||= {};
+  cfg.apis.maas ||= {};
+  cfg.apis.ark ||= {};
+  cfg.apis.banana ||= {};
+  cfg.apis.image2 ||= {};
+  cfg.models ||= {};
+  cfg.models.video ||= ['doubao-seedance-2.0'];
+  cfg.models.image ||= ['banana', 'image2'];
+  cfg.defaults ||= {};
+  cfg.defaults.videoProvider ||= 'maas';
+  cfg.defaults.videoModel ||= cfg.defaults.videoProvider === 'ark'
+    ? (cfg.apis.ark.modelName || 'doubao-seedance-2-0-260')
+    : (cfg.models.video[0] || 'doubao-seedance-2.0');
+  cfg.defaults.imageModel ||= cfg.models.image[0] || 'banana';
+  cfg.apis.ark.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
+  cfg.apis.ark.website ||= 'https://ark.cn-beijing.volces.com';
+  cfg.apis.ark.modelName ||= 'doubao-seedance-2-0-260';
+  return cfg;
+}
+
 function screenToWorld(clientX, clientY) {
   const rect = els.stage.getBoundingClientRect();
   return {
@@ -974,6 +996,7 @@ async function generate() {
     mode: effectiveMode,
     prompt,
     model: isVideoMode(effectiveMode) ? videoModelName() : (els.model?.value || 'banana'),
+    videoProvider: isVideoMode(effectiveMode) ? (state.config?.defaults?.videoProvider || 'maas') : '',
     ratio: els.ratio.value,
     duration: Number(els.duration.value || 8),
     generateAudio: els.generateAudio.checked,
@@ -1020,7 +1043,7 @@ async function generateFromNode(nodeId) {
     return;
   }
 
-  node.model = 'doubao-seedance-2.0';
+  node.model = videoModelName();
   node.taskStatus = 'queued';
   node.progressText = '正在提交生成任务...';
   node.resultUrl = '';
@@ -1030,7 +1053,8 @@ async function generateFromNode(nodeId) {
   const payload = {
     mode: node.type,
     prompt,
-    model: 'doubao-seedance-2.0',
+    model: videoModelName(),
+    videoProvider: state.config?.defaults?.videoProvider || 'maas',
     ratio: node.ratio || '16:9',
     duration: Number(node.duration || 5),
     resolution: node.resolution || '720p',
@@ -1305,7 +1329,7 @@ function taskHTML(task) {
 async function loadConfig() {
   const res = await fetch('/api/config');
   const remoteConfig = await res.json();
-  state.config = mergeConfig(remoteConfig, localUserConfig());
+  state.config = normalizeConfigShape(mergeConfig(remoteConfig, localUserConfig()));
   applyConfigToUI();
 }
 
@@ -1317,9 +1341,14 @@ function applyConfigToUI() {
   if (els.watermark) els.watermark.checked = !!cfg.defaults.watermark;
   fillModelSelect();
 
+  document.querySelector('#providerMaas').checked = (cfg.defaults.videoProvider || 'maas') === 'maas';
+  document.querySelector('#providerArk').checked = cfg.defaults.videoProvider === 'ark';
   document.querySelector('#maasBaseUrl').value = cfg.apis.maas.baseUrl || '';
   document.querySelector('#maasApiKey').value = cfg.apis.maas.apiKey || '';
   document.querySelector('#maasWebsite').value = cfg.apis.maas.website || '';
+  document.querySelector('#arkBaseUrl').value = cfg.apis.ark.baseUrl || '';
+  document.querySelector('#arkApiKey').value = cfg.apis.ark.apiKey || '';
+  document.querySelector('#arkModel').value = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
   document.querySelector('#bananaApiKey').value = cfg.apis.banana.apiKey || '';
   document.querySelector('#bananaWebsite').value = cfg.apis.banana.website || '';
   document.querySelector('#image2ApiKey').value = cfg.apis.image2.apiKey || '';
@@ -1344,6 +1373,8 @@ function isVideoMode(mode) {
 
 function videoModelName() {
   const cfg = state.config || {};
+  const provider = cfg.defaults?.videoProvider || 'maas';
+  if (provider === 'ark') return cfg.apis?.ark?.modelName || 'doubao-seedance-2-0-260';
   return cfg.defaults?.videoModel || cfg.models?.video?.[0] || 'doubao-seedance-2.0';
 }
 
@@ -1360,10 +1391,15 @@ function selectVideoModel() {
 }
 
 async function saveSettings() {
-  const cfg = state.config;
+  const cfg = normalizeConfigShape(state.config);
+  cfg.defaults.videoProvider = document.querySelector('input[name="videoProvider"]:checked')?.value || 'maas';
   cfg.apis.maas.baseUrl = document.querySelector('#maasBaseUrl').value.trim();
   cfg.apis.maas.apiKey = document.querySelector('#maasApiKey').value.trim();
   cfg.apis.maas.website = document.querySelector('#maasWebsite').value.trim();
+  cfg.apis.ark.baseUrl = document.querySelector('#arkBaseUrl').value.trim();
+  cfg.apis.ark.apiKey = document.querySelector('#arkApiKey').value.trim();
+  cfg.apis.ark.website = cfg.apis.ark.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
+  cfg.apis.ark.modelName = document.querySelector('#arkModel').value.trim() || 'doubao-seedance-2-0-260';
   cfg.apis.banana.apiKey = document.querySelector('#bananaApiKey').value.trim();
   cfg.apis.banana.website = document.querySelector('#bananaWebsite').value.trim();
   cfg.apis.image2.apiKey = document.querySelector('#image2ApiKey').value.trim();
@@ -1374,7 +1410,9 @@ async function saveSettings() {
   if (!cfg.models.video.includes('doubao-seedance-2.0')) {
     cfg.models.video.unshift('doubao-seedance-2.0');
   }
-  cfg.defaults.videoModel = 'doubao-seedance-2.0';
+  cfg.defaults.videoModel = cfg.defaults.videoProvider === 'ark'
+    ? cfg.apis.ark.modelName
+    : 'doubao-seedance-2.0';
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';
   persistUserConfig(cfg);
   await fetch('/api/config', {
