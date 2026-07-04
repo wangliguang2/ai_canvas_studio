@@ -933,6 +933,28 @@ h3 {
   position: relative;
 }
 
+.image-ref-delete {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(8, 10, 14, .72);
+  color: #fff;
+  font-size: 13px;
+  line-height: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.image-ref-delete:hover {
+  background: rgba(239, 68, 68, .92);
+}
+
 .image-ref-card img,
 .image-ref-empty {
   width: 100%;
