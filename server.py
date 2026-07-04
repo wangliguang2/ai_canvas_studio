@@ -42,6 +42,12 @@ DEFAULT_CONFIG = {
             "publicKeyPath": "./tmp/seedance_pub.pem",
             "privateKeyPath": "./tmp/seedance_priv.pem",
         },
+        "ark": {
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "apiKey": "",
+            "website": "https://ark.cn-beijing.volces.com",
+            "modelName": "doubao-seedance-2-0-260",
+        },
         "banana": {
             "baseUrl": "",
             "apiKey": "",
@@ -61,6 +67,7 @@ DEFAULT_CONFIG = {
     },
     "defaults": {
         "videoModel": "doubao-seedance-2.0",
+        "videoProvider": "maas",
         "imageModel": "banana",
         "ratio": "16:9",
         "duration": 8,
@@ -88,6 +95,21 @@ def load_config() -> dict:
 
 
 def normalize_config(config: dict) -> None:
+    apis = config.setdefault("apis", {})
+    apis.setdefault("maas", {})
+    apis.setdefault("ark", {})
+    defaults = config.setdefault("defaults", {})
+    models = config.setdefault("models", {})
+    models.setdefault("video", ["doubao-seedance-2.0"])
+    defaults.setdefault("videoProvider", "maas")
+    ark = apis["ark"]
+    ark.setdefault("baseUrl", "https://ark.cn-beijing.volces.com/api/v3")
+    ark.setdefault("website", "https://ark.cn-beijing.volces.com")
+    ark.setdefault("modelName", "doubao-seedance-2-0-260")
+    if defaults.get("videoProvider") == "ark":
+        defaults["videoModel"] = ark.get("modelName") or "doubao-seedance-2-0-260"
+    else:
+        defaults["videoModel"] = "doubao-seedance-2.0"
     for key in ("banana", "image2"):
         api = config.get("apis", {}).get(key, {})
         base_url = api.get("baseUrl", "")
@@ -260,6 +282,16 @@ def generate_image(config: dict, body: dict) -> dict:
     return {"url": public_url(output_path), "raw": result, "model": payload["model"], "alias": model}
 
 
+def video_provider(config: dict, body: dict | None = None) -> str:
+    provider = (body or {}).get("videoProvider") or config.get("defaults", {}).get("videoProvider") or "maas"
+    return "ark" if provider == "ark" else "maas"
+
+
+def maas_model_name(config: dict) -> str:
+    models = config.get("models", {}).get("video") or ["doubao-seedance-2.0"]
+    return "doubao-seedance-2.0" if "doubao-seedance-2.0" in models else models[0]
+
+
 def make_client(config: dict, model: str) -> MaasSeedanceClient:
     if MaasSeedanceClient is None:
         raise RuntimeError("maas_seedance package is not installed")
@@ -276,9 +308,11 @@ def make_client(config: dict, model: str) -> MaasSeedanceClient:
     return client
 
 
-def run_video_task(task_id: str, config: dict, request_data: dict, model: str) -> None:
+def run_video_task(task_id: str, config: dict, request_data: dict, model: str, provider: str = "maas") -> None:
     TASKS[task_id]["status"] = "creating"
     try:
+        if provider == "ark":
+            raise RuntimeError("火山算力视频生成还没有接入本地后端。请先在设置里切回“移动算力”，或等火山 CreateVideoGenTask 接口接入后再用。")
         client = make_client(config, model)
         remote_task_id = client.create_video_generation_task(request_data)
         TASKS[task_id].update({"remoteTaskId": remote_task_id, "status": "running"})
@@ -355,7 +389,12 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_json()
         mode = body.get("mode") or body.get("type") or "t2v"
         prompt = body.get("prompt", "")
+        provider = video_provider(config, body)
         model = body.get("model") or config["defaults"]["videoModel"]
+        if provider == "maas":
+            model = maas_model_name(config)
+        elif provider == "ark":
+            model = config.get("apis", {}).get("ark", {}).get("modelName") or "doubao-seedance-2-0-260"
         ratio = body.get("ratio") or config["defaults"]["ratio"]
         duration = int(body.get("duration") or config["defaults"]["duration"])
         resolution = body.get("resolution") or body.get("quality") or "720p"
@@ -397,10 +436,11 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "queued",
                 "mode": mode,
                 "model": model,
+                "videoProvider": provider,
                 "request": compact_request_for_task(request_data),
                 "createdAt": time.time(),
             }
-            thread = threading.Thread(target=run_video_task, args=(task_id, config, request_data, model), daemon=True)
+            thread = threading.Thread(target=run_video_task, args=(task_id, config, request_data, model, provider), daemon=True)
             thread.start()
             self.send_json({"ok": True, "taskId": task_id, "request": request_data})
             return

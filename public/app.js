@@ -991,6 +991,10 @@ async function generate() {
   }
   if (isVideoMode(effectiveMode)) {
     selectVideoModel();
+    if (selectedVideoProvider() === 'ark') {
+      setStatus(arkVideoNotReadyMessage());
+      return;
+    }
   }
   const payload = {
     mode: effectiveMode,
@@ -1038,6 +1042,15 @@ async function generateFromNode(nodeId) {
   if (!prompt) {
     node.taskStatus = 'failed';
     node.progressText = '请在节点里填写提示词，或连接一个提示词节点';
+    render();
+    saveCanvas();
+    return;
+  }
+
+  if (selectedVideoProvider() === 'ark') {
+    node.taskStatus = 'failed';
+    node.progressPercent = 100;
+    node.progressText = arkVideoNotReadyMessage();
     render();
     saveCanvas();
     return;
@@ -1376,6 +1389,14 @@ function videoModelName() {
   const provider = cfg.defaults?.videoProvider || 'maas';
   if (provider === 'ark') return cfg.apis?.ark?.modelName || 'doubao-seedance-2-0-260';
   return cfg.defaults?.videoModel || cfg.models?.video?.[0] || 'doubao-seedance-2.0';
+}
+
+function selectedVideoProvider() {
+  return state.config?.defaults?.videoProvider || 'maas';
+}
+
+function arkVideoNotReadyMessage() {
+  return '火山算力视频生成还没接入，请先在设置里选择“移动算力”并保存后再生成。';
 }
 
 function selectVideoModel() {
