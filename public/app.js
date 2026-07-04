@@ -518,9 +518,11 @@ function startSoftProgress(nodeId, from = 18, to = 88) {
 function videoGeneratorHTML(node) {
   const src = node.resultUrl || '';
   const preview = src
-    ? `<video class="node-video-output" src="${src}" controls></video>`
+    ? `<video class="node-video-output" src="${src}"></video>
+      <button class="video-play-toggle" data-video-toggle title="播放/暂停">播放</button>
+      ${node.taskStatus === 'succeeded' ? '<div class="video-success-badge">生成成功</div>' : ''}`
     : '<div class="node-video-empty">视频预览</div>';
-  const status = node.taskStatus
+  const status = node.taskStatus && node.taskStatus !== 'succeeded'
     ? `<div class="preview-status ${node.taskStatus}">
         <div>${escapeHtml(node.progressText || node.taskStatus)}</div>
         ${progressBarHTML(node, true)}
@@ -1878,6 +1880,26 @@ function bindEvents() {
     state.selectedId = nodeEl.dataset.id;
     state.selectedLinkId = null;
     generateFromNode(state.selectedId);
+  });
+
+  els.world.addEventListener('click', event => {
+    const btn = event.target.closest('[data-video-toggle]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const shell = btn.closest('.node-preview-shell');
+    const video = shell?.querySelector('video');
+    if (!video) return;
+    if (video.paused) {
+      video.play().then(() => {
+        btn.textContent = '暂停';
+        btn.classList.add('playing');
+      }).catch(err => setStatus(`播放失败：${err.message}`));
+    } else {
+      video.pause();
+      btn.textContent = '播放';
+      btn.classList.remove('playing');
+    }
   });
 
   els.world.addEventListener('dragstart', event => {

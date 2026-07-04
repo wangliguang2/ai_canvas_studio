@@ -783,6 +783,44 @@ h3 {
     #0b0e13;
 }
 
+.video-play-toggle {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  min-width: 54px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #eef7ff;
+  background: rgba(8, 14, 20, .82);
+  border: 1px solid rgba(255, 255, 255, .2);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.video-play-toggle:hover,
+.video-play-toggle.playing {
+  background: rgba(39, 195, 215, .9);
+  color: #071015;
+}
+
+.video-success-badge {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(22, 96, 57, .82);
+  color: #bbf5cf;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 .image-node-preview {
   flex: 1 1 auto;
   height: 100%;
