@@ -322,8 +322,7 @@ def generate_image(config: dict, body: dict) -> dict:
         for index, ref in enumerate(refs):
             ref_url = data_url_for_local_asset(ref.get("url") or "")
             content, mime, filename = image_bytes_from_url(ref_url)
-            field = "image" if len(refs) == 1 else "image[]"
-            files.append((field, filename or f"reference_{index + 1}.png", mime, content))
+            files.append(("image", filename or f"reference_{index + 1}.png", mime, content))
         fields = {
             "model": api.get("modelName") or model,
             "prompt": prompt,

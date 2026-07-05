@@ -100,7 +100,7 @@ export default async (req: Request) => {
       for (const [index, ref] of refs.entries()) {
         if (!ref?.url) continue;
         const image = await imageBlobFromReference(ref.url, req);
-        form.append(refs.length === 1 ? "image" : "image[]", image.blob, image.filename.replace(".", `_${index + 1}.`));
+        form.append("image", image.blob, image.filename.replace(".", `_${index + 1}.`));
       }
       const response = await fetch(imageEditEndpoint(api), {
         method: "POST",

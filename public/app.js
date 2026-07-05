@@ -996,9 +996,7 @@ function linkManyToTarget(sourceIds, targetId) {
 }
 
 function imageModelForUtility(source) {
-  if (['banana', 'image2'].includes(source?.model)) return source.model;
-  const preferred = state.config?.defaults?.imageModel;
-  return ['banana', 'image2'].includes(preferred) ? preferred : 'image2';
+  return 'image2';
 }
 
 function sourceAndInheritedImageIds(source) {
@@ -1211,6 +1209,14 @@ async function generateImageFromNode(nodeId) {
     saveCanvas();
     return;
   }
+  const refs = node.type === 'i2i' ? referencesForNode(node.id) : [];
+  if (node.type === 'i2i' && !refs.length) {
+    node.taskStatus = 'failed';
+    node.progressText = '图生图必须连接至少一张原图参考';
+    render();
+    saveCanvas();
+    return;
+  }
   node.taskStatus = 'queued';
   node.progressText = '正在提交生图任务...';
   node.progressPercent = 12;
@@ -1220,11 +1226,11 @@ async function generateImageFromNode(nodeId) {
   const payload = {
     mode: node.type,
     prompt,
-    model: node.model || 'banana',
+    model: node.type === 'i2i' ? 'image2' : (node.model || 'banana'),
     ratio: node.aspect || '16:9',
     quality: node.quality || '2k',
     imageCount: Number(node.imageCount || 1),
-    references: node.type === 'i2i' ? referencesForNode(node.id) : [],
+    references: refs,
     clientConfig: state.config,
   };
   let progressTimer = null;
