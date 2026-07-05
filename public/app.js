@@ -66,6 +66,7 @@ const typeNames = {
 const IMAGE_UTILITY_PROMPTS = {
   characterSheet: '提取原图角色，制作标准角色设定图，画面分区排版，完整呈现人物正面、侧面、背面三视图、脸部高清特写、服饰细节特写；人体结构标准精准，五官清晰，服饰纹理、版型、配饰细节完整，构图工整规整，高清画质，专业角色原画，画面干净无杂物',
   nineGrid: '保持主体人物面部，服装特征或者场景细节特征，光影不变，生成九个角度不同景别各异的九宫格',
+  paintNote: '在原图基础上添加专业绘画注释，保留原图主体身份、五官、服饰和构图，在画面周围加入清晰的绘画分析标注、结构线、光影说明、色彩说明、服装材质说明和关键细节箭头，排版干净专业，像角色设计讲解稿',
 };
 
 function uid(prefix = 'node') {
@@ -420,9 +421,9 @@ function nodeHTML(node) {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
   } else if (node.type === 'image' && node.url) {
     body = `
+      ${imageUtilityToolbarHTML(node)}
       <div class="image-node-preview">
         <img class="image-output" src="${node.url}" alt="" draggable="false" data-capture-ratio>
-        ${imageUtilityToolbarHTML(node)}
       </div>
       <div class="pill">${escapeHtml(node.role || 'reference_image')}</div>
     `;
@@ -463,7 +464,7 @@ function imageGeneratorHTML(node) {
   const status = node.taskStatus && node.taskStatus !== 'succeeded'
     ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>`
     : '';
-  return `<div class="image-node-preview">${output}${tools}${download}${status}</div>`;
+  return `${tools}<div class="image-node-preview">${output}${download}${status}</div>`;
 }
 
 function imageUtilityToolbarHTML(node) {
@@ -471,7 +472,15 @@ function imageUtilityToolbarHTML(node) {
     <div class="image-tool-strip">
       <button data-image-tool="characterSheet" title="生成人物三视图">人物三视图</button>
       <button data-image-tool="nineGrid" title="生成九宫格">九宫格</button>
-      <button data-image-tool="copyPrompt" title="复制当前工具提示词">复制提示词</button>
+      <button data-image-tool="paintNote" title="生成绘画注释图">绘画注释</button>
+      <div class="image-tool-menu">
+        <button type="button" title="宫格裁切">宫格裁切</button>
+        <div class="image-tool-dropdown">
+          <button data-image-grid="9">9宫格裁切<span>3×3 网格</span></button>
+          <button data-image-grid="16">16宫格裁切<span>4×4 网格</span></button>
+          <button data-image-grid="25">25宫格裁切<span>5×5 网格</span></button>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -986,28 +995,56 @@ function linkManyToTarget(sourceIds, targetId) {
   }
 }
 
-function createImageUtilityNode(sourceId, tool) {
+function imageModelForUtility(source) {
+  if (['banana', 'image2'].includes(source?.model)) return source.model;
+  const preferred = state.config?.defaults?.imageModel;
+  return ['banana', 'image2'].includes(preferred) ? preferred : 'image2';
+}
+
+function sourceAndInheritedImageIds(source) {
+  const ids = [source.id];
+  for (const ref of referencesForNode(source.id).filter(r => r.kind === 'image')) {
+    if (ref.nodeId && !ids.includes(ref.nodeId)) ids.push(ref.nodeId);
+  }
+  return ids;
+}
+
+function createImageUtilityNode(sourceId, tool, options = {}) {
   const source = state.nodes.find(n => n.id === sourceId);
   if (!source) return;
-  const prompt = IMAGE_UTILITY_PROMPTS[tool];
+  let prompt = IMAGE_UTILITY_PROMPTS[tool];
+  if (tool === 'gridCrop') {
+    const grid = options.grid || 9;
+    const side = Math.sqrt(grid);
+    prompt = `保持原图主体人物面部、服装特征、场景细节和光影不变，将原图按照${grid}宫格裁切方式重新排版成${side}×${side}网格，每一格展示不同裁切区域和局部细节，整体画面规整干净，高清画质，保留原图身份一致性`;
+  }
   if (!prompt) return;
-  const title = tool === 'characterSheet' ? '人物三视图' : '九宫格';
+  const title = tool === 'characterSheet'
+    ? '人物三视图'
+    : tool === 'nineGrid'
+      ? '九宫格'
+      : tool === 'paintNote'
+        ? '绘画注释'
+        : `${options.grid || 9}宫格裁切`;
+  const refIds = sourceAndInheritedImageIds(source);
   const node = addNode('i2i', source.x + (source.w || 360) + 80, source.y, {
     title,
     text: prompt,
-    model: source.model || state.config?.defaults?.imageModel || 'image2',
-    aspect: tool === 'nineGrid' ? '1:1' : '16:9',
+    model: imageModelForUtility(source),
+    aspect: tool === 'nineGrid' || tool === 'gridCrop' ? '1:1' : '16:9',
     quality: '2k',
     imageCount: 1,
-    refOrder: [source.id],
+    refOrder: refIds,
     panelW: 720,
     panelH: 220,
   });
-  state.links.push({
-    id: uid('link'),
-    from: source.id,
-    to: node.id,
-  });
+  for (const refId of refIds) {
+    state.links.push({
+      id: uid('link'),
+      from: refId,
+      to: node.id,
+    });
+  }
   state.activeParamNodeId = node.id;
   state.selectedId = node.id;
   render();
@@ -2028,13 +2065,16 @@ function bindEvents() {
     event.stopPropagation();
     const nodeEl = eventNodeElement(event.target);
     const tool = toolBtn.dataset.imageTool;
-    if (tool === 'copyPrompt') {
-      const text = `人物三视图：${IMAGE_UTILITY_PROMPTS.characterSheet}\n\n九宫格：${IMAGE_UTILITY_PROMPTS.nineGrid}`;
-      await navigator.clipboard?.writeText(text).catch(() => {});
-      setStatus('内置提示词已复制');
-      return;
-    }
     createImageUtilityNode(nodeEl.dataset.id, tool);
+  });
+
+  els.world.addEventListener('click', event => {
+    const gridBtn = event.target.closest('[data-image-grid]');
+    if (!gridBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    createImageUtilityNode(nodeEl.dataset.id, 'gridCrop', { grid: Number(gridBtn.dataset.imageGrid || 9) });
   });
 
   els.world.addEventListener('click', event => {
