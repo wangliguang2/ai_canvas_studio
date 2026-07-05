@@ -56,14 +56,23 @@ export default async (req: Request) => {
     const apiKey = api.apiKey || "";
     if (!apiKey) throw new Error(`${model} API Key is empty. Open settings and fill it first.`);
 
+    const refs = Array.isArray(body.references) ? body.references : [];
+    const prompt = body.mode === "i2i" && refs.length
+      ? `Image-to-image identity preservation task. Use the provided reference images as strict visual identity anchors. Keep each referenced person's face, age, gender, body type, hairstyle, skin tone, expression tendency, and clothing identity consistent unless the user explicitly asks to change them. Do not replace referenced people with new people. If multiple references are provided, preserve their order as @1, @2, @3 and keep the same subjects. Only change the scene, action, camera, lighting, or style requested by the user.\n\nUser prompt: ${body.prompt || ""}`
+      : body.prompt || "";
+
     const payload: any = {
       model: api.modelName || model,
-      prompt: body.prompt || "",
+      prompt,
       n: Number(body.imageCount || 1),
       size: imageSize(body.ratio || "16:9", body.quality || "2k"),
     };
-    const refs = Array.isArray(body.references) ? body.references : [];
-    if (refs.length) payload.references = refs.map((r: any) => r.url).filter(Boolean);
+    if (refs.length) {
+      const refUrls = refs.map((r: any) => r.url).filter(Boolean);
+      payload.references = refUrls;
+      payload.reference_images = refUrls;
+      payload.input_images = refUrls;
+    }
 
     const response = await fetch(imageEndpoint(api), {
       method: "POST",

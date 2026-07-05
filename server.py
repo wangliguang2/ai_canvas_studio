@@ -240,17 +240,30 @@ def generate_image(config: dict, body: dict) -> dict:
     if not api_key:
         raise RuntimeError(f"{model} API Key is empty. Open settings and fill it first.")
 
+    refs = body.get("references") or []
+    prompt = body.get("prompt", "")
+    if body.get("mode") == "i2i" and refs:
+        prompt = (
+            "Image-to-image identity preservation task. Use the provided reference images as strict visual identity anchors. "
+            "Keep each referenced person's face, age, gender, body type, hairstyle, skin tone, expression tendency, and clothing identity consistent unless the user explicitly asks to change them. "
+            "Do not replace referenced people with new people. If multiple references are provided, preserve their order as @1, @2, @3 and keep the same subjects. "
+            "Only change the scene, action, camera, lighting, or style requested by the user.\n\n"
+            f"User prompt: {prompt}"
+        )
+
     payload = {
         "model": api.get("modelName") or model,
-        "prompt": body.get("prompt", ""),
+        "prompt": prompt,
         "n": int(body.get("imageCount") or 1),
         "size": image_size(body.get("ratio") or "16:9", body.get("quality") or "2k"),
     }
     if body.get("preset") and body.get("preset") != "默认":
         payload["prompt"] = f"{payload['prompt']}\nPreset: {body['preset']}"
-    refs = body.get("references") or []
     if refs:
-        payload["references"] = [r.get("url") for r in refs if r.get("url")]
+        ref_urls = [data_url_for_local_asset(r.get("url") or "") for r in refs if r.get("url")]
+        payload["references"] = ref_urls
+        payload["reference_images"] = ref_urls
+        payload["input_images"] = ref_urls
 
     req = urllib.request.Request(
         image_endpoint(api),
