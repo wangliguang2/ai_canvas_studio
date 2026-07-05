@@ -30,10 +30,40 @@ function imageEndpoint(api: any) {
   return `${root}/v1/images/generations`;
 }
 
+function imageEditEndpoint(api: any) {
+  const base = String(api.baseUrl || "").trim().replace(/\/$/, "");
+  const website = String(api.website || "").trim().replace(/\/$/, "");
+  const root = base || website || "https://yungpt.com";
+  if (root.endsWith("/images/edits")) return root;
+  if (root.endsWith("/images/generations")) return `${root.replace(/\/images\/generations$/, "")}/images/edits`;
+  if (root.endsWith("/v1")) return `${root}/images/edits`;
+  return `${root}/v1/images/edits`;
+}
+
 async function storeImageFromBase64(b64: string, req: Request) {
   const id = `img_${crypto.randomUUID().replace(/-/g, "")}.png`;
   await imageStore().set(id, Buffer.from(b64, "base64"), { metadata: { contentType: "image/png" } });
   return new URL(`/api/image/${id}`, req.url).pathname;
+}
+
+async function imageBlobFromReference(url: string, req: Request) {
+  const absolute = new URL(url, req.url).toString();
+  const response = await fetch(absolute);
+  if (!response.ok) throw new Error(`读取参考图失败 HTTP ${response.status}: ${absolute}`);
+  const contentType = response.headers.get("content-type") || "image/png";
+  const ext = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
+  return {
+    blob: new Blob([await response.arrayBuffer()], { type: contentType }),
+    filename: `reference.${ext}`,
+  };
+}
+
+async function parseAndStoreImageResult(result: any, req: Request) {
+  const item = (result.data || [])[0] || {};
+  let url = item.url || "";
+  if (!url && item.b64_json) url = await storeImageFromBase64(item.b64_json, req);
+  if (!url) throw new Error(`Image API response has no url/b64_json: ${JSON.stringify(result).slice(0, 500)}`);
+  return url;
 }
 
 export default async (req: Request) => {
@@ -60,6 +90,44 @@ export default async (req: Request) => {
     const prompt = body.mode === "i2i" && refs.length
       ? `Image-to-image identity preservation task. Use the provided reference images as strict visual identity anchors. Keep each referenced person's face, age, gender, body type, hairstyle, skin tone, expression tendency, and clothing identity consistent unless the user explicitly asks to change them. Do not replace referenced people with new people. If multiple references are provided, preserve their order as @1, @2, @3 and keep the same subjects. Only change the scene, action, camera, lighting, or style requested by the user.\n\nUser prompt: ${body.prompt || ""}`
       : body.prompt || "";
+
+    if (body.mode === "i2i" && refs.length) {
+      const form = new FormData();
+      form.append("model", api.modelName || model);
+      form.append("prompt", prompt);
+      form.append("n", String(Number(body.imageCount || 1)));
+      form.append("size", imageSize(body.ratio || "16:9", body.quality || "2k"));
+      for (const [index, ref] of refs.entries()) {
+        if (!ref?.url) continue;
+        const image = await imageBlobFromReference(ref.url, req);
+        form.append(refs.length === 1 ? "image" : "image[]", image.blob, image.filename.replace(".", `_${index + 1}.`));
+      }
+      const response = await fetch(imageEditEndpoint(api), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      const text = await response.text();
+      let result: any;
+      try {
+        result = JSON.parse(text);
+      } catch {
+        result = { raw: text };
+      }
+      if (!response.ok) throw new Error(`图生图编辑接口失败 HTTP ${response.status}: ${text.slice(0, 500)}`);
+      const url = await parseAndStoreImageResult(result, req);
+      await store.setJSON(taskId, {
+        id: taskId,
+        status: "succeeded",
+        mode: body.mode,
+        model,
+        url,
+        mime: "image/png",
+        createdAt: startedAt,
+        finishedAt: Date.now(),
+      });
+      return;
+    }
 
     const payload: any = {
       model: api.modelName || model,
@@ -91,10 +159,7 @@ export default async (req: Request) => {
     }
     if (!response.ok) throw new Error(`Image API HTTP ${response.status}: ${text.slice(0, 500)}`);
 
-    const item = (result.data || [])[0] || {};
-    let url = item.url || "";
-    if (!url && item.b64_json) url = await storeImageFromBase64(item.b64_json, req);
-    if (!url) throw new Error(`Image API response has no url/b64_json: ${JSON.stringify(result).slice(0, 500)}`);
+    const url = await parseAndStoreImageResult(result, req);
 
     await store.setJSON(taskId, {
       id: taskId,

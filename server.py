@@ -228,6 +228,73 @@ def image_endpoint(api: dict) -> str:
     return f"{root}/v1/images/generations"
 
 
+def image_edit_endpoint(api: dict) -> str:
+    base = (api.get("baseUrl") or "").strip().rstrip("/")
+    website = (api.get("website") or "").strip().rstrip("/")
+    root = base or website or "https://yungpt.com"
+    if root.endswith("/images/edits"):
+        return root
+    if root.endswith("/images/generations"):
+        return root.rsplit("/images/generations", 1)[0] + "/images/edits"
+    if root.endswith("/v1"):
+        return f"{root}/images/edits"
+    return f"{root}/v1/images/edits"
+
+
+def image_bytes_from_url(url: str) -> tuple[bytes, str, str]:
+    if url.startswith("data:"):
+        header, encoded = url.split(",", 1)
+        mime = header.split(";", 1)[0].replace("data:", "") or "image/png"
+        ext = mimetypes.guess_extension(mime) or ".png"
+        return base64.b64decode(encoded), mime, f"reference{ext}"
+    path = local_asset_path(url)
+    if path:
+        mime = mimetypes.guess_type(path.name)[0] or "image/png"
+        return path.read_bytes(), mime, path.name
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        mime = resp.headers.get_content_type() or "image/png"
+        ext = mimetypes.guess_extension(mime) or ".png"
+        return resp.read(), mime, f"reference{ext}"
+
+
+def multipart_body(fields: dict, files: list[tuple[str, str, str, bytes]]) -> tuple[bytes, str]:
+    boundary = f"----AICanvas{uuid.uuid4().hex}"
+    chunks: list[bytes] = []
+    for name, value in fields.items():
+        chunks.extend([
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+            str(value).encode("utf-8"),
+            b"\r\n",
+        ])
+    for field, filename, mime, content in files:
+        safe_filename = safe_name(filename)
+        chunks.extend([
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="{field}"; filename="{safe_filename}"\r\n'.encode("utf-8"),
+            f"Content-Type: {mime}\r\n\r\n".encode("utf-8"),
+            content,
+            b"\r\n",
+        ])
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(chunks), boundary
+
+
+def extract_image_result(result: dict, output_prefix: str = "image") -> Path:
+    item = (result.get("data") or [{}])[0]
+    output_path = OUTPUTS / f"{output_prefix}_{uuid.uuid4().hex[:12]}.png"
+    if item.get("b64_json"):
+        output_path.write_bytes(base64.b64decode(item["b64_json"]))
+    elif item.get("url"):
+        img_req = urllib.request.Request(item["url"], headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(img_req, timeout=120) as resp:
+            output_path.write_bytes(resp.read())
+    else:
+        raise RuntimeError(f"Image API response has no url/b64_json: {json.dumps(result, ensure_ascii=False)[:500]}")
+    return output_path
+
+
 def generate_image(config: dict, body: dict) -> dict:
     model = body.get("model") or "image2"
     api = config["apis"].get(model, {})
@@ -250,6 +317,37 @@ def generate_image(config: dict, body: dict) -> dict:
             "Only change the scene, action, camera, lighting, or style requested by the user.\n\n"
             f"User prompt: {prompt}"
         )
+
+        files = []
+        for index, ref in enumerate(refs):
+            ref_url = data_url_for_local_asset(ref.get("url") or "")
+            content, mime, filename = image_bytes_from_url(ref_url)
+            field = "image" if len(refs) == 1 else "image[]"
+            files.append((field, filename or f"reference_{index + 1}.png", mime, content))
+        fields = {
+            "model": api.get("modelName") or model,
+            "prompt": prompt,
+            "n": int(body.get("imageCount") or 1),
+            "size": image_size(body.get("ratio") or "16:9", body.get("quality") or "2k"),
+        }
+        data, boundary = multipart_body(fields, files)
+        req = urllib.request.Request(
+            image_edit_endpoint(api),
+            data=data,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"图生图编辑接口失败 HTTP {exc.code}: {detail[:500]}") from exc
+        output_path = extract_image_result(result, "image_edit")
+        return {"url": public_url(output_path), "raw": result, "model": fields["model"], "alias": model}
 
     payload = {
         "model": api.get("modelName") or model,
@@ -281,16 +379,7 @@ def generate_image(config: dict, body: dict) -> dict:
         detail = exc.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"Image API HTTP {exc.code}: {detail[:500]}") from exc
 
-    item = (result.get("data") or [{}])[0]
-    output_path = OUTPUTS / f"image_{uuid.uuid4().hex[:12]}.png"
-    if item.get("b64_json"):
-        output_path.write_bytes(base64.b64decode(item["b64_json"]))
-    elif item.get("url"):
-        img_req = urllib.request.Request(item["url"], headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(img_req, timeout=120) as resp:
-            output_path.write_bytes(resp.read())
-    else:
-        raise RuntimeError(f"Image API response has no url/b64_json: {json.dumps(result, ensure_ascii=False)[:500]}")
+    output_path = extract_image_result(result, "image")
 
     return {"url": public_url(output_path), "raw": result, "model": payload["model"], "alias": model}
 
