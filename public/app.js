@@ -63,6 +63,11 @@ const typeNames = {
   i2v: '图生视频',
 };
 
+const IMAGE_UTILITY_PROMPTS = {
+  characterSheet: '提取原图角色，制作标准角色设定图，画面分区排版，完整呈现人物正面、侧面、背面三视图、脸部高清特写、服饰细节特写；人体结构标准精准，五官清晰，服饰纹理、版型、配饰细节完整，构图工整规整，高清画质，专业角色原画，画面干净无杂物',
+  nineGrid: '保持主体人物面部，服装特征或者场景细节特征，光影不变，生成九个角度不同景别各异的九宫格',
+};
+
 function uid(prefix = 'node') {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -414,7 +419,13 @@ function nodeHTML(node) {
   if (node.type === 'group') {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
   } else if (node.type === 'image' && node.url) {
-    body = `<img src="${node.url}" alt="" draggable="false" data-capture-ratio><div class="pill">${escapeHtml(node.role || 'reference_image')}</div>`;
+    body = `
+      <div class="image-node-preview">
+        <img class="image-output" src="${node.url}" alt="" draggable="false" data-capture-ratio>
+        ${imageUtilityToolbarHTML(node)}
+      </div>
+      <div class="pill">${escapeHtml(node.role || 'reference_image')}</div>
+    `;
   } else if (node.type === 'video' && node.url) {
     body = `<video src="${node.url}" controls></video><div class="pill">${escapeHtml(node.role || 'reference_video')}</div>`;
   } else if (node.type === 'audio' && node.url) {
@@ -448,10 +459,21 @@ function imageGeneratorHTML(node) {
     ? `<img class="image-output" src="${node.resultUrl}" alt="" draggable="false">`
     : '<div class="image-output-empty">Image</div>';
   const download = node.resultUrl ? `<button class="node-download" data-download-image title="下载图片">下载</button>` : '';
+  const tools = node.resultUrl ? imageUtilityToolbarHTML(node) : '';
   const status = node.taskStatus && node.taskStatus !== 'succeeded'
     ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>`
     : '';
-  return `<div class="image-node-preview">${output}${download}${status}</div>`;
+  return `<div class="image-node-preview">${output}${tools}${download}${status}</div>`;
+}
+
+function imageUtilityToolbarHTML(node) {
+  return `
+    <div class="image-tool-strip">
+      <button data-image-tool="characterSheet" title="生成人物三视图">人物三视图</button>
+      <button data-image-tool="nineGrid" title="生成九宫格">九宫格</button>
+      <button data-image-tool="copyPrompt" title="复制当前工具提示词">复制提示词</button>
+    </div>
+  `;
 }
 
 function imageParamPanelHTML(node) {
@@ -962,6 +984,35 @@ function linkManyToTarget(sourceIds, targetId) {
       ...linkedIds,
     ];
   }
+}
+
+function createImageUtilityNode(sourceId, tool) {
+  const source = state.nodes.find(n => n.id === sourceId);
+  if (!source) return;
+  const prompt = IMAGE_UTILITY_PROMPTS[tool];
+  if (!prompt) return;
+  const title = tool === 'characterSheet' ? '人物三视图' : '九宫格';
+  const node = addNode('i2i', source.x + (source.w || 360) + 80, source.y, {
+    title,
+    text: prompt,
+    model: source.model || state.config?.defaults?.imageModel || 'image2',
+    aspect: tool === 'nineGrid' ? '1:1' : '16:9',
+    quality: '2k',
+    imageCount: 1,
+    refOrder: [source.id],
+    panelW: 720,
+    panelH: 220,
+  });
+  state.links.push({
+    id: uid('link'),
+    from: source.id,
+    to: node.id,
+  });
+  state.activeParamNodeId = node.id;
+  state.selectedId = node.id;
+  render();
+  saveCanvas();
+  setStatus(`已创建${title}图生图节点`);
 }
 
 function selectedReferences() {
@@ -1968,6 +2019,22 @@ function bindEvents() {
     event.stopPropagation();
     const nodeEl = eventNodeElement(event.target);
     downloadImageForNode(nodeEl.dataset.id);
+  });
+
+  els.world.addEventListener('click', async event => {
+    const toolBtn = event.target.closest('[data-image-tool]');
+    if (!toolBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    const tool = toolBtn.dataset.imageTool;
+    if (tool === 'copyPrompt') {
+      const text = `人物三视图：${IMAGE_UTILITY_PROMPTS.characterSheet}\n\n九宫格：${IMAGE_UTILITY_PROMPTS.nineGrid}`;
+      await navigator.clipboard?.writeText(text).catch(() => {});
+      setStatus('内置提示词已复制');
+      return;
+    }
+    createImageUtilityNode(nodeEl.dataset.id, tool);
   });
 
   els.world.addEventListener('click', event => {
