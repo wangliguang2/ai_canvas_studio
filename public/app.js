@@ -20,6 +20,7 @@
   undoStack: [],
   lastSnapshot: '',
   restoring: false,
+  hoverVideoNodeId: null,
 };
 
 const els = {
@@ -108,11 +109,14 @@ function normalizeConfigShape(config) {
   cfg.apis.ark ||= {};
   cfg.apis.banana ||= {};
   cfg.apis.image2 ||= {};
+  cfg.apis.i2i ||= {};
+  cfg.apis.multimodal ||= {};
   cfg.models ||= {};
   cfg.models.video ||= ['doubao-seedance-2.0'];
   cfg.models.image ||= ['banana', 'image2'];
   cfg.defaults ||= {};
   cfg.defaults.videoProvider ||= 'maas';
+  cfg.defaults.imageSettingsMode ||= 'standard';
   cfg.defaults.videoModel ||= cfg.defaults.videoProvider === 'ark'
     ? (cfg.apis.ark.modelName || 'doubao-seedance-2-0-260')
     : (cfg.models.video[0] || 'doubao-seedance-2.0');
@@ -120,6 +124,22 @@ function normalizeConfigShape(config) {
   cfg.apis.ark.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
   cfg.apis.ark.website ||= 'https://ark.cn-beijing.volces.com';
   cfg.apis.ark.modelName ||= 'doubao-seedance-2-0-260';
+  cfg.apis.i2i.endpointType ||= 'openai-edits';
+  cfg.apis.i2i.referenceField ||= 'image';
+  cfg.apis.i2i.modelName ||= '';
+  cfg.apis.i2i.identityPrompt ||= 'Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.';
+  cfg.apis.multimodal.baseUrl ||= 'https://www.dmxapi.cn/v1/responses';
+  cfg.apis.multimodal.website ||= 'https://www.dmxapi.cn';
+  cfg.apis.multimodal.submitModel ||= 'doubao-seedance-2-0-260128';
+  cfg.apis.multimodal.queryModel ||= 'seedance-2-0-get';
+  cfg.apis.multimodal.requestFormat ||= 'responses-json';
+  cfg.apis.multimodal.authMode ||= 'bearer';
+  cfg.apis.multimodal.resolution ||= '720p';
+  cfg.apis.multimodal.ratio ||= '16:9';
+  cfg.apis.multimodal.duration ||= 8;
+  cfg.apis.multimodal.watermark ||= false;
+  cfg.apis.multimodal.returnLastFrame ||= false;
+  cfg.apis.multimodal.webSearch ||= false;
   return cfg;
 }
 
@@ -274,7 +294,10 @@ function normalizeNode(node) {
   if (node.type === 'image' && node.imageRatio) {
     node.imageRatio = imageRatioForNode(node);
   }
-  if (['t2i', 'i2i'].includes(node.type) && !['banana', 'image2'].includes(node.model)) {
+  if (node.type === 't2i' && !['banana', 'image2'].includes(node.model)) {
+    node.model = 'image2';
+  }
+  if (node.type === 'i2i' && !['banana', 'image2'].includes(node.model)) {
     node.model = 'image2';
   }
   if (['t2i', 'i2i'].includes(node.type) && (!node.quality || (node.quality === '4k' && !node.qualityMigrated))) {
@@ -413,6 +436,13 @@ function attachImageRatioCapture(div, node) {
   }
 }
 
+let canvasSaveTimer = 0;
+
+function scheduleCanvasSave(delay = 450) {
+  window.clearTimeout(canvasSaveTimer);
+  canvasSaveTimer = window.setTimeout(saveCanvas, delay);
+}
+
 function nodeHTML(node) {
   const title = escapeHtml(node.title || typeNames[node.type] || '节点');
   const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="删除">×</button></div>`;
@@ -495,11 +525,14 @@ function imageParamPanelHTML(node) {
       ${node.type === 'i2i' ? `
         <label class="node-label">提示词</label>
         <textarea class="param-prompt" data-field="text" placeholder="描述这组参考图要怎么变化...">${escapeHtml(node.text || '')}</textarea>
+        ${referenceMentionMenuHTML(node)}
       ` : ''}
       <div class="image-param-row">
-        <select data-field="model">
-          ${['banana', 'image2'].map(v => `<option ${node.model === v ? 'selected' : ''}>${v}</option>`).join('')}
-        </select>
+        ${node.type === 'i2i'
+          ? '<div class="model-badge">DMXAPI 图生图通道<span>设置里配置模型</span></div>'
+          : `<select data-field="model">
+              ${['banana', 'image2'].map(v => `<option ${node.model === v ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>`}
         <select data-field="aspect">
           ${['16:9', '9:16', '1:1', '4:3', '3:4'].map(v => `<option ${node.aspect === v ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
@@ -541,16 +574,35 @@ function startSoftProgress(nodeId, from = 18, to = 88) {
     if (!node || !['queued', 'running', 'creating'].includes(node.taskStatus)) return;
     percent = Math.min(to, percent + Math.max(1, Math.round((to - percent) * 0.12)));
     node.progressPercent = percent;
-    render();
-    saveCanvas();
+    updateNodeProgressDom(node);
   }, 1200);
+}
+
+function updateNodeProgressDom(node) {
+  const wrappers = [
+    document.querySelector(`.node[data-id="${node.id}"]`),
+    document.querySelector(`.param-panel[data-id="${node.id}"]`),
+  ].filter(Boolean);
+  for (const wrapper of wrappers) {
+    wrapper.querySelectorAll('.progress-fill').forEach(fill => {
+      fill.style.width = `${progressPercentForNode(node)}%`;
+    });
+    wrapper.querySelectorAll('.progress-percent').forEach(label => {
+      label.textContent = `${progressPercentForNode(node)}%`;
+    });
+  }
 }
 
 function videoGeneratorHTML(node) {
   const src = node.resultUrl || '';
   const preview = src
-    ? `<video class="node-video-output" src="${src}"></video>
-      <button class="video-play-toggle" data-video-toggle title="播放/暂停">播放</button>
+    ? `<video class="node-video-output" src="${src}" preload="metadata"></video>
+      <div class="video-control-bar">
+        <button class="video-icon-button" data-video-toggle title="播放/暂停" aria-label="播放/暂停">▶</button>
+        <span class="video-time" data-video-time>0:00 / 0:00</span>
+        <input class="video-scrubber" data-video-scrubber type="range" min="0" max="1000" value="0" step="1" aria-label="视频进度">
+        <button class="video-icon-button video-download-button" data-download-video title="下载视频" aria-label="下载视频">↓</button>
+      </div>
       ${node.taskStatus === 'succeeded' ? '<div class="video-success-badge">生成成功</div>' : ''}`
     : '<div class="node-video-empty">视频预览</div>';
   const status = node.taskStatus && node.taskStatus !== 'succeeded'
@@ -635,6 +687,68 @@ function referenceImageStripHTML(node) {
       ${refStrip}
       <button class="image-add-ref" data-add-ref>+<span>添加</span></button>
     </div>
+    ${refs.length ? '<div class="ref-mention-hint">提示词里写 @1、@2 可只调用对应参考图；不写 @ 默认使用全部参考图。</div>' : ''}
+  `;
+}
+
+function formatMediaTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const minutes = Math.floor(total / 60);
+  const rest = String(total % 60).padStart(2, '0');
+  return `${minutes}:${rest}`;
+}
+
+function syncVideoControls(shell) {
+  const video = shell?.querySelector('video');
+  if (!video) return;
+  const toggle = shell.querySelector('[data-video-toggle]');
+  const scrubber = shell.querySelector('[data-video-scrubber]');
+  const time = shell.querySelector('[data-video-time]');
+  if (toggle) {
+    toggle.textContent = video.paused ? '▶' : 'Ⅱ';
+    toggle.classList.toggle('playing', !video.paused);
+  }
+  if (scrubber && Number.isFinite(video.duration) && video.duration > 0 && !scrubber.matches(':active')) {
+    scrubber.value = String(Math.round((video.currentTime / video.duration) * 1000));
+  }
+  if (time) {
+    time.textContent = `${formatMediaTime(video.currentTime)} / ${formatMediaTime(video.duration)}`;
+  }
+}
+
+function toggleVideoInShell(shell) {
+  const video = shell?.querySelector('video');
+  if (!video) return false;
+  if (video.paused) {
+    video.play()
+      .then(() => syncVideoControls(shell))
+      .catch(err => setStatus(`播放失败：${err.message}`));
+  } else {
+    video.pause();
+    syncVideoControls(shell);
+  }
+  return true;
+}
+
+function activeVideoShell() {
+  const id = state.hoverVideoNodeId || state.selectedId;
+  if (!id) return null;
+  return document.querySelector(`.node[data-id="${id}"] .node-preview-shell`);
+}
+
+function referenceMentionMenuHTML(node) {
+  const refs = referencesForNode(node.id).filter(r => r.kind === 'image');
+  if (!refs.length) return '';
+  return `
+    <div class="ref-mention-menu hidden">
+      ${refs.map((ref, index) => `
+        <button type="button" data-insert-ref-mention="@${index + 1}">
+          <img src="${ref.url}" alt="">
+          <span>@${index + 1}</span>
+        </button>
+      `).join('')}
+    </div>
   `;
 }
 
@@ -704,7 +818,7 @@ function canOutput(type) {
 }
 
 function canInput(type) {
-  return ['image', 'video', 'audio', 'i2i', 'i2v', 't2v', 't2i', 'script', 'result', 'world'].includes(type);
+  return ['image', 'video', 'audio', 't2i', 'i2i', 'i2v', 't2v', 'script', 'result', 'world'].includes(type);
 }
 
 function eventNodeElement(target) {
@@ -740,7 +854,7 @@ function renderLinks() {
       drawTempLink({ x: source.x + source.w, y: source.y + 53 }, state.linking.to);
     }
   }
-  if (!state.linking && state.pendingLink?.point) {
+  if (!state.linking && state.pendingLink?.point && pendingFromIds().length) {
     for (const fromId of pendingFromIds()) {
       const source = state.nodes.find(n => n.id === fromId);
       if (!source) continue;
@@ -948,7 +1062,7 @@ function connectPendingTo(targetId) {
     });
     state.selectedLinkId = state.links[state.links.length - 1].id;
     const targetNode = state.nodes.find(n => n.id === state.pendingLink.to);
-    if (targetNode && ['t2i', 'i2i', 'i2v'].includes(targetNode.type)) {
+    if (targetNode && ['i2i', 'i2v'].includes(targetNode.type)) {
       targetNode.refOrder = [...(targetNode.refOrder || []).filter(id => id !== targetId), targetId];
     }
     state.selectedId = null;
@@ -987,7 +1101,7 @@ function linkManyToTarget(sourceIds, targetId) {
     });
     linkedIds.push(sourceId);
   }
-  if (linkedIds.length && ['t2i', 'i2i', 'i2v'].includes(targetNode.type)) {
+  if (linkedIds.length && ['i2i', 'i2v'].includes(targetNode.type)) {
     targetNode.refOrder = [
       ...(targetNode.refOrder || []).filter(id => !linkedIds.includes(id)),
       ...linkedIds,
@@ -996,7 +1110,7 @@ function linkManyToTarget(sourceIds, targetId) {
 }
 
 function imageModelForUtility(source) {
-  return 'image2';
+  return source?.model && ['banana', 'image2'].includes(source.model) ? source.model : 'image2';
 }
 
 function sourceAndInheritedImageIds(source) {
@@ -1209,10 +1323,13 @@ async function generateImageFromNode(nodeId) {
     saveCanvas();
     return;
   }
-  const refs = node.type === 'i2i' ? referencesForNode(node.id) : [];
+  const allRefs = node.type === 'i2i' ? referencesForNode(node.id).filter(ref => ref.kind === 'image' && ref.url) : [];
+  const refs = node.type === 'i2i' ? referencesMentionedInPrompt(prompt, allRefs) : [];
   if (node.type === 'i2i' && !refs.length) {
     node.taskStatus = 'failed';
-    node.progressText = '图生图必须连接至少一张原图参考';
+    node.progressText = allRefs.length
+      ? '提示词里的 @编号 没有匹配到参考图，请使用 @1、@2 这样的编号，或删掉 @ 使用全部参考图'
+      : '图生图必须连接至少一张原图参考';
     render();
     saveCanvas();
     return;
@@ -1226,7 +1343,7 @@ async function generateImageFromNode(nodeId) {
   const payload = {
     mode: node.type,
     prompt,
-    model: node.type === 'i2i' ? 'image2' : (node.model || 'banana'),
+    model: node.model || 'image2',
     ratio: node.aspect || '16:9',
     quality: node.quality || '2k',
     imageCount: Number(node.imageCount || 1),
@@ -1329,7 +1446,8 @@ function linkedPromptText(nodeId) {
 
 function referencesForNode(nodeId) {
   const sourceIds = state.links.filter(l => l.to === nodeId).map(l => l.from);
-  const pool = sourceIds.length ? state.nodes.filter(n => sourceIds.includes(n.id)) : state.nodes;
+  if (!sourceIds.length) return [];
+  const pool = state.nodes.filter(n => sourceIds.includes(n.id));
   const node = state.nodes.find(n => n.id === nodeId);
   const sorted = [...pool].sort((a, b) => {
     const ai = node?.refOrder?.indexOf(a.id) ?? -1;
@@ -1393,8 +1511,7 @@ async function pollNodeTask(nodeId, taskId) {
       saveCanvas();
       return;
     }
-    render();
-    saveCanvas();
+    updateNodeProgressDom(node);
     setTimeout(() => pollNodeTask(nodeId, taskId), 5000);
   } catch (err) {
     node.taskStatus = 'failed';
@@ -1449,6 +1566,15 @@ async function loadConfig() {
   applyConfigToUI();
 }
 
+function referencesMentionedInPrompt(prompt, refs) {
+  const matches = [...String(prompt || '').matchAll(/@(\d+)/g)]
+    .map(match => Number(match[1]))
+    .filter(num => Number.isInteger(num) && num > 0);
+  if (!matches.length) return refs;
+  const unique = [...new Set(matches)];
+  return unique.map(num => refs[num - 1]).filter(Boolean);
+}
+
 function applyConfigToUI() {
   const cfg = state.config;
   if (els.ratio) els.ratio.value = cfg.defaults.ratio;
@@ -1459,6 +1585,8 @@ function applyConfigToUI() {
 
   document.querySelector('#providerMaas').checked = (cfg.defaults.videoProvider || 'maas') === 'maas';
   document.querySelector('#providerArk').checked = cfg.defaults.videoProvider === 'ark';
+  document.querySelector('#imageModeStandard').checked = (cfg.defaults.imageSettingsMode || 'standard') === 'standard';
+  document.querySelector('#imageModeI2i').checked = cfg.defaults.imageSettingsMode === 'i2i';
   document.querySelector('#maasBaseUrl').value = cfg.apis.maas.baseUrl || '';
   document.querySelector('#maasApiKey').value = cfg.apis.maas.apiKey || '';
   document.querySelector('#maasWebsite').value = cfg.apis.maas.website || '';
@@ -1470,8 +1598,62 @@ function applyConfigToUI() {
   document.querySelector('#image2ApiKey').value = cfg.apis.image2.apiKey || '';
   document.querySelector('#image2Website').value = cfg.apis.image2.website || '';
   document.querySelector('#image2ModelName').value = cfg.apis.image2.modelName || 'gpt-image-2';
+  document.querySelector('#i2iBaseUrl').value = cfg.apis.i2i.baseUrl || '';
+  document.querySelector('#i2iApiKey').value = cfg.apis.i2i.apiKey || '';
+  document.querySelector('#i2iWebsite').value = cfg.apis.i2i.website || 'https://www.dmxapi.cn';
+  document.querySelector('#i2iModelName').value = cfg.apis.i2i.modelName || '';
+  document.querySelector('#i2iEndpointType').value = cfg.apis.i2i.endpointType || 'custom-edits';
+  document.querySelector('#i2iReferenceField').value = cfg.apis.i2i.referenceField || 'image';
+  document.querySelector('#i2iIdentityPrompt').value = cfg.apis.i2i.identityPrompt || '';
+  document.querySelector('#multiBaseUrl').value = cfg.apis.multimodal.baseUrl || 'https://www.dmxapi.cn/v1/responses';
+  document.querySelector('#multiApiKey').value = cfg.apis.multimodal.apiKey || '';
+  document.querySelector('#multiSubmitModel').value = cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
+  document.querySelector('#multiQueryModel').value = cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
+  document.querySelector('#multiRequestFormat').value = cfg.apis.multimodal.requestFormat || 'responses-json';
+  document.querySelector('#multiResolution').value = cfg.apis.multimodal.resolution || '720p';
+  document.querySelector('#multiRatio').value = cfg.apis.multimodal.ratio || '16:9';
+  document.querySelector('#multiDuration').value = String(cfg.apis.multimodal.duration || 8);
+  document.querySelector('#multiWatermark').checked = !!cfg.apis.multimodal.watermark;
+  document.querySelector('#multiReturnLastFrame').checked = !!cfg.apis.multimodal.returnLastFrame;
+  document.querySelector('#multiWebSearch').checked = !!cfg.apis.multimodal.webSearch;
   document.querySelector('#videoModels').value = (cfg.models.video || []).join(', ');
   document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
+  updateVideoProviderUI();
+  updateImageSettingsModeUI();
+}
+
+function updateVideoProviderUI() {
+  const provider = document.querySelector('input[name="videoProvider"]:checked')?.value || 'maas';
+  const maas = document.querySelector('.settings-video-maas');
+  const ark = document.querySelector('.settings-video-ark');
+  [
+    [maas, provider !== 'maas'],
+    [ark, provider !== 'ark'],
+  ].forEach(([panel, disabled]) => {
+    if (!panel) return;
+    panel.classList.toggle('settings-panel-disabled', disabled);
+    panel.querySelectorAll('input, select, textarea').forEach(input => {
+      if (input.name === 'videoProvider') return;
+      input.disabled = disabled;
+    });
+  });
+}
+
+function updateImageSettingsModeUI() {
+  const mode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
+  const standard = document.querySelector('.settings-image-standard');
+  const i2i = document.querySelector('.settings-i2i');
+  [
+    [standard, mode !== 'standard'],
+    [i2i, mode !== 'i2i'],
+  ].forEach(([panel, disabled]) => {
+    if (!panel) return;
+    panel.classList.toggle('settings-panel-disabled', disabled);
+    panel.querySelectorAll('input, select, textarea').forEach(input => {
+      if (input.name === 'imageSettingsMode') return;
+      input.disabled = disabled;
+    });
+  });
 }
 
 function fillModelSelect() {
@@ -1506,9 +1688,10 @@ function selectVideoModel() {
   els.model.value = model;
 }
 
-async function saveSettings() {
+function collectSettingsFromUI() {
   const cfg = normalizeConfigShape(state.config);
   cfg.defaults.videoProvider = document.querySelector('input[name="videoProvider"]:checked')?.value || 'maas';
+  cfg.defaults.imageSettingsMode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
   cfg.apis.maas.baseUrl = document.querySelector('#maasBaseUrl').value.trim();
   cfg.apis.maas.apiKey = document.querySelector('#maasApiKey').value.trim();
   cfg.apis.maas.website = document.querySelector('#maasWebsite').value.trim();
@@ -1521,6 +1704,26 @@ async function saveSettings() {
   cfg.apis.image2.apiKey = document.querySelector('#image2ApiKey').value.trim();
   cfg.apis.image2.website = document.querySelector('#image2Website').value.trim();
   cfg.apis.image2.modelName = document.querySelector('#image2ModelName').value.trim() || 'gpt-image-2';
+  cfg.apis.i2i.baseUrl = document.querySelector('#i2iBaseUrl').value.trim();
+  cfg.apis.i2i.apiKey = document.querySelector('#i2iApiKey').value.trim();
+  cfg.apis.i2i.website = document.querySelector('#i2iWebsite').value.trim() || 'https://www.dmxapi.cn';
+  cfg.apis.i2i.modelName = document.querySelector('#i2iModelName').value.trim();
+  cfg.apis.i2i.endpointType = document.querySelector('#i2iEndpointType').value || 'custom-edits';
+  cfg.apis.i2i.referenceField = 'image';
+  cfg.apis.i2i.identityPrompt = document.querySelector('#i2iIdentityPrompt').value.trim();
+  cfg.apis.multimodal.baseUrl = document.querySelector('#multiBaseUrl').value.trim() || 'https://www.dmxapi.cn/v1/responses';
+  cfg.apis.multimodal.apiKey = document.querySelector('#multiApiKey').value.trim();
+  cfg.apis.multimodal.website = 'https://www.dmxapi.cn';
+  cfg.apis.multimodal.submitModel = document.querySelector('#multiSubmitModel').value.trim() || 'doubao-seedance-2-0-260128';
+  cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel').value.trim() || 'seedance-2-0-get';
+  cfg.apis.multimodal.requestFormat = document.querySelector('#multiRequestFormat').value || 'responses-json';
+  cfg.apis.multimodal.authMode = 'bearer';
+  cfg.apis.multimodal.resolution = document.querySelector('#multiResolution').value || '720p';
+  cfg.apis.multimodal.ratio = document.querySelector('#multiRatio').value || '16:9';
+  cfg.apis.multimodal.duration = Number(document.querySelector('#multiDuration').value || 8);
+  cfg.apis.multimodal.watermark = document.querySelector('#multiWatermark').checked;
+  cfg.apis.multimodal.returnLastFrame = document.querySelector('#multiReturnLastFrame').checked;
+  cfg.apis.multimodal.webSearch = document.querySelector('#multiWebSearch').checked;
   cfg.models.video = document.querySelector('#videoModels').value.split(',').map(s => s.trim()).filter(Boolean);
   cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
   if (!cfg.models.video.includes('doubao-seedance-2.0')) {
@@ -1530,6 +1733,10 @@ async function saveSettings() {
     ? cfg.apis.ark.modelName
     : 'doubao-seedance-2.0';
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';
+  return cfg;
+}
+
+async function persistSettingsConfig(cfg) {
   persistUserConfig(cfg);
   await fetch('/api/config', {
     method: 'POST',
@@ -1538,8 +1745,29 @@ async function saveSettings() {
   }).catch(() => {});
   state.config = cfg;
   fillModelSelect();
+}
+
+async function saveSettings() {
+  const cfg = collectSettingsFromUI();
+  await persistSettingsConfig(cfg);
   els.settings.classList.add('hidden');
   setStatus('设置已保存');
+}
+
+let settingsAutoSaveTimer = 0;
+
+function autoSaveSettings() {
+  if (els.settings?.classList.contains('hidden')) return;
+  window.clearTimeout(settingsAutoSaveTimer);
+  settingsAutoSaveTimer = window.setTimeout(async () => {
+    try {
+      const cfg = collectSettingsFromUI();
+      await persistSettingsConfig(cfg);
+      setStatus('设置已自动保存');
+    } catch (err) {
+      setStatus(`自动保存失败：${err.message}`);
+    }
+  }, 600);
 }
 
 function bindEvents() {
@@ -1560,10 +1788,23 @@ function bindEvents() {
     if (!els.menu.contains(event.target)) hideMenu();
   });
 
+  els.world.addEventListener('dblclick', event => {
+    const nodeEl = event.target.closest('.node');
+    if (!nodeEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.selectedId = nodeEl.dataset.id;
+    state.selectedIds = [nodeEl.dataset.id];
+    state.selectedLinkId = null;
+    toggleMaximizeSelectedNode();
+  });
+
   els.stage.addEventListener('mousedown', event => {
     hideMenu();
     last = { x: event.clientX, y: event.clientY };
-    if (state.scissors) {
+    if (state.scissors || event.shiftKey) {
+      state.scissors = true;
+      els.stage.classList.add('scissors');
       cutLinkAt(event.clientX, event.clientY);
       return;
     }
@@ -1753,7 +1994,7 @@ function bindEvents() {
       updateSelectionBox(event.clientX, event.clientY);
       return;
     }
-    if (state.scissors) {
+    if (state.scissors || event.shiftKey) {
       if (cutLinkAt(event.clientX, event.clientY)) return;
     }
     if (state.linking) {
@@ -1858,6 +2099,12 @@ function bindEvents() {
       return;
     }
     if (event.code === 'Space') {
+      const shell = activeVideoShell();
+      if (shell?.querySelector('video')) {
+        event.preventDefault();
+        toggleVideoInShell(shell);
+        return;
+      }
       event.preventDefault();
       state.spacePan = true;
       setStatus('按住空格拖动画布');
@@ -1868,15 +2115,20 @@ function bindEvents() {
       toggleMaximizeSelectedNode();
       return;
     }
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && event.code === 'Backquote') {
+      event.preventDefault();
+      toggleMaximizeSelectedNode();
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'f') {
       event.preventDefault();
       focusSelectedNode();
       return;
     }
-    if (event.key.toLowerCase() === 'y') {
+    if (event.key === 'Shift') {
       state.scissors = true;
       els.stage.classList.add('scissors');
-      setStatus('剪刀模式：划过关系线即可删除');
+      setStatus('按住 Shift 划过关系线即可删除');
       return;
     }
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
@@ -1898,7 +2150,7 @@ function bindEvents() {
       state.spacePan = false;
       if (!state.selecting) setStatus('就绪');
     }
-    if (event.key.toLowerCase() === 'y') {
+    if (event.key === 'Shift') {
       state.scissors = false;
       els.stage.classList.remove('scissors');
       setStatus('就绪');
@@ -1947,7 +2199,42 @@ function bindEvents() {
       if (els.prompt && (node.type === 'prompt' || node.type === 't2v' || node.type === 'i2v')) {
         els.prompt.value = node.text || '';
       }
-    saveCanvas();
+    scheduleCanvasSave();
+  });
+
+  els.world.addEventListener('keydown', event => {
+    const textarea = event.target.closest?.('textarea.param-prompt');
+    if (!textarea) return;
+    if (event.key === '@' || (event.shiftKey && event.code === 'Digit2')) {
+      const panel = textarea.closest('.image-params, .node-body');
+      const menu = panel?.querySelector('.ref-mention-menu');
+      if (menu) {
+        menu.classList.remove('hidden');
+        setStatus('选择参考图编号：@1、@2...');
+      }
+    }
+    if (event.key === 'Escape') {
+      textarea.closest('.image-params, .node-body')?.querySelector('.ref-mention-menu')?.classList.add('hidden');
+    }
+  });
+
+  els.world.addEventListener('click', event => {
+    const mention = event.target.closest('[data-insert-ref-mention]');
+    if (!mention) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const panel = mention.closest('.image-params, .node-body');
+    const textarea = panel?.querySelector('textarea.param-prompt');
+    if (!textarea) return;
+    const value = mention.dataset.insertRefMention;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    const prefix = start > 0 && !/\s/.test(textarea.value[start - 1] || '') ? ' ' : '';
+    const suffix = textarea.value[end] && !/\s/.test(textarea.value[end]) ? ' ' : '';
+    textarea.setRangeText(`${prefix}${value}${suffix}`, start, end, 'end');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    panel.querySelector('.ref-mention-menu')?.classList.add('hidden');
+    textarea.focus();
   });
 
   els.world.addEventListener('change', event => {
@@ -1981,19 +2268,64 @@ function bindEvents() {
     if (!btn) return;
     event.preventDefault();
     event.stopPropagation();
-    const shell = btn.closest('.node-preview-shell');
+    toggleVideoInShell(btn.closest('.node-preview-shell'));
+  });
+
+  els.world.addEventListener('input', event => {
+    const scrubber = event.target.closest('[data-video-scrubber]');
+    if (!scrubber) return;
+    const shell = scrubber.closest('.node-preview-shell');
     const video = shell?.querySelector('video');
-    if (!video) return;
-    if (video.paused) {
-      video.play().then(() => {
-        btn.textContent = '暂停';
-        btn.classList.add('playing');
-      }).catch(err => setStatus(`播放失败：${err.message}`));
-    } else {
-      video.pause();
-      btn.textContent = '播放';
-      btn.classList.remove('playing');
-    }
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    video.currentTime = (Number(scrubber.value) / 1000) * video.duration;
+    syncVideoControls(shell);
+  });
+
+  els.world.addEventListener('timeupdate', event => {
+    if (!event.target.matches('video.node-video-output')) return;
+    syncVideoControls(event.target.closest('.node-preview-shell'));
+  }, true);
+
+  els.world.addEventListener('loadedmetadata', event => {
+    if (!event.target.matches('video.node-video-output')) return;
+    syncVideoControls(event.target.closest('.node-preview-shell'));
+  }, true);
+
+  els.world.addEventListener('play', event => {
+    if (!event.target.matches('video.node-video-output')) return;
+    syncVideoControls(event.target.closest('.node-preview-shell'));
+  }, true);
+
+  els.world.addEventListener('pause', event => {
+    if (!event.target.matches('video.node-video-output')) return;
+    syncVideoControls(event.target.closest('.node-preview-shell'));
+  }, true);
+
+  els.world.addEventListener('mouseenter', event => {
+    const nodeEl = event.target.closest('.node');
+    if (!nodeEl?.querySelector('video.node-video-output')) return;
+    state.hoverVideoNodeId = nodeEl.dataset.id;
+  }, true);
+
+  els.world.addEventListener('mouseleave', event => {
+    const nodeEl = event.target.closest('.node');
+    if (nodeEl?.dataset.id === state.hoverVideoNodeId) state.hoverVideoNodeId = null;
+  }, true);
+
+  els.world.addEventListener('click', event => {
+    const btn = event.target.closest('[data-download-video]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+    if (!node?.resultUrl && !node?.url) return;
+    const a = document.createElement('a');
+    a.href = node.resultUrl || node.url;
+    a.download = `${node.title || 'ai-canvas-video'}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   });
 
   els.world.addEventListener('dragstart', event => {
@@ -2267,6 +2599,29 @@ function bindEvents() {
   document.querySelector('#settingsToggle').addEventListener('click', () => els.settings.classList.remove('hidden'));
   document.querySelector('#closeSettings').addEventListener('click', () => els.settings.classList.add('hidden'));
   document.querySelector('#saveSettings').addEventListener('click', saveSettings);
+  els.settings?.addEventListener('input', event => {
+    if (!event.target.matches('input, textarea, select')) return;
+    autoSaveSettings();
+  });
+  els.settings?.addEventListener('change', event => {
+    if (!event.target.matches('input, textarea, select')) return;
+    autoSaveSettings();
+  });
+  document.querySelectorAll('input[name="videoProvider"]').forEach(input => {
+    input.addEventListener('change', updateVideoProviderUI);
+  });
+  document.querySelectorAll('input[name="imageSettingsMode"]').forEach(input => {
+    input.addEventListener('change', updateImageSettingsModeUI);
+  });
+  document.querySelectorAll('[data-toggle-secret]').forEach(button => {
+    button.addEventListener('click', () => {
+      const input = document.querySelector(button.dataset.toggleSecret);
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.textContent = show ? '隐藏' : '显示';
+    });
+  });
 }
 
 function deleteNode(id, options = {}) {

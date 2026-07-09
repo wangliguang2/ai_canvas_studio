@@ -87,7 +87,7 @@
           <button id="closeSettings">关闭</button>
         </div>
         <div class="settings-grid">
-          <div>
+          <div class="settings-video-maas">
             <h3 class="settings-provider-title">
               <label><input type="radio" name="videoProvider" id="providerMaas" value="maas"> 移动算力</label>
             </h3>
@@ -100,7 +100,7 @@
             <label>视频模型名</label>
             <input id="videoModels">
           </div>
-          <div>
+          <div class="settings-video-ark">
             <h3 class="settings-provider-title">
               <label><input type="radio" name="videoProvider" id="providerArk" value="ark"> 火山算力</label>
             </h3>
@@ -111,8 +111,10 @@
             <label>ARK_MODEL <span class="required">*</span></label>
             <input id="arkModel" placeholder="doubao-seedance-2-0-260">
           </div>
-          <div>
-            <h3>生图模型</h3>
+          <div class="settings-image-standard">
+            <h3 class="settings-provider-title">
+              <label><input type="radio" name="imageSettingsMode" id="imageModeStandard" value="standard"> 生图模型</label>
+            </h3>
             <label>Banana API Key</label>
             <input id="bananaApiKey" type="password">
             <label>Banana 网站</label>
@@ -125,6 +127,89 @@
             <input id="image2ModelName" placeholder="gpt-image-2">
             <label>生图模型名</label>
             <input id="imageModels">
+          </div>
+          <div class="settings-i2i">
+            <h3 class="settings-provider-title">
+              <label><input type="radio" name="imageSettingsMode" id="imageModeI2i" value="i2i"> 图生图模型</label>
+            </h3>
+            <p class="settings-note settings-note-right">留空后自行填写</p>
+            <label>图生图 API 地址</label>
+            <input id="i2iBaseUrl" placeholder="https://www.dmxapi.cn/v1/images/edits">
+            <label>图生图 API Key <span class="required">*</span></label>
+            <div class="secret-row">
+              <input id="i2iApiKey" type="password">
+              <button type="button" data-toggle-secret="#i2iApiKey">显示</button>
+            </div>
+            <label>图生图模型名 <span class="required">*</span></label>
+            <input id="i2iModelName" placeholder="gpt-image-2-ssvip">
+            <label>请求格式</label>
+            <select id="i2iEndpointType">
+              <option value="custom-edits">Multipart 完整参数</option>
+            </select>
+            <input id="i2iWebsite" class="hidden-field" type="hidden">
+            <input id="i2iReferenceField" class="hidden-field" type="hidden" value="image">
+            <textarea id="i2iIdentityPrompt" class="hidden-field" rows="1"></textarea>
+          </div>
+          <div class="settings-multimodal">
+            <h3 class="settings-provider-title">
+              <label>多参模块</label>
+            </h3>
+            <p class="settings-note settings-note-right">DMXAPI 多模态参考生视频</p>
+            <label>API 地址</label>
+            <input id="multiBaseUrl" placeholder="https://www.dmxapi.cn/v1/responses">
+            <label>API Key</label>
+            <div class="secret-row">
+              <input id="multiApiKey" type="password">
+              <button type="button" data-toggle-secret="#multiApiKey">显示</button>
+            </div>
+            <label>提交模型</label>
+            <input id="multiSubmitModel" placeholder="doubao-seedance-2-0-260128">
+            <label>查询模型</label>
+            <input id="multiQueryModel" placeholder="seedance-2-0-get">
+            <label>请求格式</label>
+            <select id="multiRequestFormat">
+              <option value="responses-json">Responses JSON 多模态</option>
+            </select>
+            <div class="compact-grid">
+              <div>
+                <label>分辨率</label>
+                <select id="multiResolution">
+                  <option>480p</option>
+                  <option>720p</option>
+                  <option>1080p</option>
+                </select>
+              </div>
+              <div>
+                <label>比例</label>
+                <select id="multiRatio">
+                  <option>16:9</option>
+                  <option>9:16</option>
+                  <option>1:1</option>
+                  <option>4:3</option>
+                  <option>3:4</option>
+                  <option>21:9</option>
+                  <option>adaptive</option>
+                </select>
+              </div>
+              <div>
+                <label>时长</label>
+                <select id="multiDuration">
+                  <option value="8">8 秒</option>
+                  <option value="9">9 秒</option>
+                  <option value="10">10 秒</option>
+                  <option value="11">11 秒</option>
+                  <option value="12">12 秒</option>
+                  <option value="13">13 秒</option>
+                  <option value="14">14 秒</option>
+                  <option value="15">15 秒</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-checks">
+              <label><input id="multiWatermark" type="checkbox"> 水印</label>
+              <label><input id="multiReturnLastFrame" type="checkbox"> 返回尾帧</label>
+              <label><input id="multiWebSearch" type="checkbox"> 联网搜索</label>
+            </div>
           </div>
         </div>
         <button id="saveSettings" class="primary">保存设置</button>
@@ -150,7 +235,7 @@
     <input id="videoInput" type="file" multiple accept="video/*" hidden>
     <input id="audioInput" type="file" multiple accept="audio/*" hidden>
   </div>
-  <script src="/app.js?v=202607051"></script>
+  <script src="/app.js?v=202607066"></script>
 </body>
 </html>
 

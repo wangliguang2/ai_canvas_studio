@@ -16,6 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import requests
+
 try:
     from maas_seedance import MaasSeedanceClient
 except Exception:  # pragma: no cover
@@ -60,6 +62,30 @@ DEFAULT_CONFIG = {
             "website": "",
             "modelName": "gpt-image-2",
         },
+        "i2i": {
+            "baseUrl": "",
+            "apiKey": "",
+            "website": "",
+            "modelName": "",
+            "endpointType": "openai-edits",
+            "referenceField": "image",
+            "identityPrompt": "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.",
+        },
+        "multimodal": {
+            "baseUrl": "https://www.dmxapi.cn/v1/responses",
+            "apiKey": "",
+            "website": "https://www.dmxapi.cn",
+            "submitModel": "doubao-seedance-2-0-260128",
+            "queryModel": "seedance-2-0-get",
+            "requestFormat": "Responses JSON 多模态",
+            "authMode": "bearer",
+            "resolution": "720p",
+            "ratio": "16:9",
+            "duration": 8,
+            "watermark": False,
+            "returnLastFrame": False,
+            "webSearch": False,
+        },
     },
     "models": {
         "video": ["doubao-seedance-2.0"],
@@ -98,6 +124,8 @@ def normalize_config(config: dict) -> None:
     apis = config.setdefault("apis", {})
     apis.setdefault("maas", {})
     apis.setdefault("ark", {})
+    apis.setdefault("i2i", {})
+    apis.setdefault("multimodal", {})
     defaults = config.setdefault("defaults", {})
     models = config.setdefault("models", {})
     models.setdefault("video", ["doubao-seedance-2.0"])
@@ -122,6 +150,24 @@ def normalize_config(config: dict) -> None:
             api["modelName"] = "gpt-image-2"
         if key == "banana" and not api.get("modelName"):
             api["modelName"] = "banana"
+    i2i = apis["i2i"]
+    i2i.setdefault("endpointType", "openai-edits")
+    i2i.setdefault("referenceField", "image")
+    i2i.setdefault("modelName", "")
+    i2i.setdefault("identityPrompt", DEFAULT_CONFIG["apis"]["i2i"]["identityPrompt"])
+    multimodal = apis["multimodal"]
+    multimodal.setdefault("baseUrl", "https://www.dmxapi.cn/v1/responses")
+    multimodal.setdefault("website", "https://www.dmxapi.cn")
+    multimodal.setdefault("submitModel", "doubao-seedance-2-0-260128")
+    multimodal.setdefault("queryModel", "seedance-2-0-get")
+    multimodal.setdefault("requestFormat", "Responses JSON 多模态")
+    multimodal.setdefault("authMode", "bearer")
+    multimodal.setdefault("resolution", "720p")
+    multimodal.setdefault("ratio", "16:9")
+    multimodal.setdefault("duration", 8)
+    multimodal.setdefault("watermark", False)
+    multimodal.setdefault("returnLastFrame", False)
+    multimodal.setdefault("webSearch", False)
 
 
 def deep_merge(base: dict, patch: dict) -> dict:
@@ -217,6 +263,77 @@ def image_size(ratio: str, quality: str) -> str:
     return f"{w}x{h}"
 
 
+def gpt_image_2_size(ratio: str, quality: str) -> str:
+    level = str(quality or "2k").lower()
+    if level == "4k":
+        mapping = {
+            "1:1": "2048x2048",
+            "16:9": "3840x2160",
+            "9:16": "2160x3840",
+            "4:3": "2048x1152",
+            "3:4": "1024x1536",
+        }
+    else:
+        mapping = {
+            "1:1": "1024x1024" if level == "1k" else "2048x2048",
+            "16:9": "2048x1152",
+            "9:16": "1024x1536",
+            "4:3": "1536x1024",
+            "3:4": "1024x1536",
+        }
+    return mapping.get(ratio, mapping["16:9"])
+
+
+def is_openai_official_image_api(api: dict) -> bool:
+    root = str(api.get("website") or api.get("baseUrl") or "").lower()
+    return "api.openai.com" in root
+
+
+def is_openai_gpt_image_model(api: dict) -> bool:
+    return is_openai_official_image_api(api) and str(api.get("modelName") or "").lower().startswith("gpt-image-")
+
+
+def is_dmx_gpt_image_model(api: dict) -> bool:
+    root = str(api.get("website") or api.get("baseUrl") or "").lower()
+    return "dmxapi.cn" in root and str(api.get("modelName") or "").lower().startswith("gpt-image-2")
+
+
+def openai_image_size(ratio: str) -> str:
+    return {
+        "1:1": "1024x1024",
+        "16:9": "1536x1024",
+        "4:3": "1536x1024",
+        "9:16": "1024x1536",
+        "3:4": "1024x1536",
+    }.get(ratio, "auto")
+
+
+def openai_image_quality(quality: str) -> str:
+    return {"1k": "low", "2k": "medium", "4k": "high"}.get(str(quality or "2k").lower(), "auto")
+
+
+def image_size_for_api(api: dict, ratio: str, quality: str) -> str:
+    if is_openai_gpt_image_model(api):
+        return openai_image_size(ratio)
+    if is_dmx_gpt_image_model(api) or str(api.get("modelName") or "").lower() == "gpt-image-2":
+        return gpt_image_2_size(ratio, quality)
+    return image_size(ratio, quality)
+
+
+def ratio_prompt_prefix(ratio: str) -> str:
+    return {
+        "16:9": "横版 16:9",
+        "9:16": "竖屏 9:16",
+        "1:1": "1:1 方形构图",
+        "4:3": "4:3",
+        "3:4": "3:4",
+    }.get(ratio, "横版 16:9")
+
+
+def is_gpt_image_2_all(api: dict) -> bool:
+    return str(api.get("modelName") or "").lower() == "gpt-image-2-all"
+
+
 def image_endpoint(api: dict) -> str:
     base = (api.get("baseUrl") or "").strip().rstrip("/")
     website = (api.get("website") or "").strip().rstrip("/")
@@ -281,6 +398,125 @@ def multipart_body(fields: dict, files: list[tuple[str, str, str, bytes]]) -> tu
     return b"".join(chunks), boundary
 
 
+def post_multipart_with_requests(url: str, api_key: str, fields: dict, files: list[tuple[str, str, str, bytes]]) -> dict:
+    request_files = []
+    try:
+        for field, filename, mime, content in files:
+            request_files.append((field, (safe_name(filename), content, mime)))
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            data=fields,
+            files=request_files,
+            timeout=180,
+        )
+        if response.status_code >= 400:
+            debug = {
+                "url": url,
+                "fieldNames": list(fields.keys()),
+                "fileFields": [item[0] for item in request_files],
+                "fileNames": [item[1][0] for item in request_files],
+                "fileMimes": [item[1][2] for item in request_files],
+                "fileSizes": [len(item[1][1]) for item in request_files],
+            }
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:500]} | sent={json.dumps(debug, ensure_ascii=False)}")
+        return response.json()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"HTTP request failed: {exc}") from exc
+    except ValueError as exc:
+        raise RuntimeError("Image API response is not valid JSON") from exc
+
+
+def dmx_image_quality(quality: str) -> str:
+    return {"1k": "low", "2k": "medium", "4k": "high"}.get(str(quality or "2k").lower(), "low")
+
+
+def image_edit_reference_files(refs: list[dict]) -> list[tuple[str, str, bytes]]:
+    ref_files: list[tuple[str, str, bytes]] = []
+    for index, ref in enumerate(refs):
+        ref_url = data_url_for_local_asset(ref.get("url") or "")
+        if not ref_url:
+            continue
+        content, mime, filename = image_bytes_from_url(ref_url)
+        ref_files.append((filename or f"reference_{index + 1}.png", mime, content))
+    return ref_files
+
+
+def generate_image_edit(config: dict, body: dict) -> dict:
+    api = config.get("apis", {}).get("i2i", {})
+    api_key = (api.get("apiKey") or "").strip()
+    model_name = (api.get("modelName") or "").strip()
+    if not api_key:
+        raise RuntimeError("图生图 API Key 未填写。请打开设置里的“图生图专用 / 角色保持”填写。")
+    if not model_name:
+        raise RuntimeError("图生图模型 ID 未填写。DMXAPI 可填 gpt-image-2-ssvip。")
+
+    refs = body.get("references") or []
+    if not refs:
+        raise RuntimeError("图生图没有收到参考图。请把图片节点右侧输出点连接到图生图节点左侧输入点，或在图生图节点里添加参考图。")
+    ref_files = image_edit_reference_files(refs)
+    if not ref_files:
+        raise RuntimeError("图生图没有收到有效参考图。请重新连接图片节点，或在图生图节点里重新添加参考图。")
+
+    prompt = (body.get("prompt") or "").strip()
+    identity_prompt = (api.get("identityPrompt") or "").strip()
+    if identity_prompt:
+        prompt = f"{identity_prompt}\n\n{prompt}"
+    if not prompt:
+        raise RuntimeError("图生图提示词为空。")
+
+    fields = {
+        "model": model_name,
+        "prompt": prompt,
+        "size": image_size_for_api(api, body.get("ratio") or "16:9", body.get("quality") or "2k"),
+        "background": "auto",
+        "output_format": "jpeg",
+        "quality": dmx_image_quality(body.get("quality") or "2k"),
+        "n": "1",
+    }
+    filename, mime, content = ref_files[0]
+    files = [("image", filename, mime, content)]
+    result = post_multipart_with_requests(image_edit_endpoint(api), api_key, fields, files)
+    output_path = extract_image_result(result, "image_edit")
+    return {
+        "url": public_url(output_path),
+        "raw": result,
+        "model": model_name,
+        "alias": "i2i",
+        "imageField": "image",
+    }
+
+
+def normalize_image_reference_field(field_name: str, api: dict) -> str:
+    field = (field_name or "image").strip() or "image"
+    model = str(api.get("modelName") or "").lower()
+    if field.lower() in {"image2", "gpt-image-2", "gpt-image-2-vip"}:
+        field = "image"
+    if is_dmx_gpt_image_model(api):
+        return "image"
+    if model in {"gpt-image-2-vip"} and field == "image" and "api.openai.com" not in str(api.get("website") or api.get("baseUrl") or "").lower():
+        return "image.items"
+    return field
+
+
+def image_reference_field_candidates(field_name: str, api: dict) -> list[str]:
+    model = str(api.get("modelName") or "").lower()
+    fields = [normalize_image_reference_field(field_name, api)]
+    if is_dmx_gpt_image_model(api):
+        fields.extend(["image"])
+    elif is_openai_gpt_image_model(api):
+        fields.extend(["image[]", "image"])
+    elif model in {"gpt-image-2", "gpt-image-2-vip"}:
+        fields.extend(["image", "image.items", "image[]", "images"])
+    else:
+        fields.extend(["image", "image[]"])
+    unique: list[str] = []
+    for field in fields:
+        if field and field not in unique:
+            unique.append(field)
+    return unique
+
+
 def extract_image_result(result: dict, output_prefix: str = "image") -> Path:
     item = (result.get("data") or [{}])[0]
     output_path = OUTPUTS / f"{output_prefix}_{uuid.uuid4().hex[:12]}.png"
@@ -296,8 +532,17 @@ def extract_image_result(result: dict, output_prefix: str = "image") -> Path:
 
 
 def generate_image(config: dict, body: dict) -> dict:
+    is_i2i = body.get("mode") == "i2i"
+    if is_i2i:
+        return generate_image_edit(config, body)
     model = body.get("model") or "image2"
-    api = config["apis"].get(model, {})
+    if model == "i2i":
+        model = "image2"
+    i2i_api = config["apis"].get("i2i", {})
+    use_i2i_api = is_i2i and bool((i2i_api.get("apiKey") or "").strip() and (i2i_api.get("modelName") or "").strip())
+    api = i2i_api if use_i2i_api else config["apis"].get(model, {})
+    if use_i2i_api:
+        model = "i2i"
     if not api and model not in {"banana", "image2"}:
         model = "image2" if config["apis"].get("image2", {}).get("apiKey") else config.get("defaults", {}).get("imageModel") or "image2"
         if model not in config["apis"]:
@@ -309,51 +554,120 @@ def generate_image(config: dict, body: dict) -> dict:
 
     refs = body.get("references") or []
     prompt = body.get("prompt", "")
-    if body.get("mode") == "i2i" and refs:
-        prompt = (
-            "Image-to-image identity preservation task. Use the provided reference images as strict visual identity anchors. "
-            "Keep each referenced person's face, age, gender, body type, hairstyle, skin tone, expression tendency, and clothing identity consistent unless the user explicitly asks to change them. "
-            "Do not replace referenced people with new people. If multiple references are provided, preserve their order as @1, @2, @3 and keep the same subjects. "
-            "Only change the scene, action, camera, lighting, or style requested by the user.\n\n"
-            f"User prompt: {prompt}"
-        )
+    if is_gpt_image_2_all(api):
+        prefix = ratio_prompt_prefix(body.get("ratio") or "16:9")
+        if prefix and not prompt.strip().startswith(prefix):
+            prompt = f"{prefix}，{prompt}"
+    if is_i2i and not refs:
+        raise RuntimeError("图生图没有收到参考图。请把图片节点右侧输出点连接到图生图节点左侧输入点，或点击图生图节点里的“添加”上传参考图。")
+    if is_i2i and refs:
+        identity_prompt = (config["apis"].get("i2i", {}).get("identityPrompt") or DEFAULT_CONFIG["apis"]["i2i"]["identityPrompt"]).strip()
+        prompt = f"{identity_prompt}\n\nUser prompt: {prompt}"
 
-        files = []
+        field_names = image_reference_field_candidates(
+            api.get("referenceField") or config["apis"].get("i2i", {}).get("referenceField") or "image",
+            api,
+        )
+        ref_files = []
         for index, ref in enumerate(refs):
             ref_url = data_url_for_local_asset(ref.get("url") or "")
+            if not ref_url:
+                continue
             content, mime, filename = image_bytes_from_url(ref_url)
-            files.append(("image", filename or f"reference_{index + 1}.png", mime, content))
-        fields = {
-            "model": api.get("modelName") or model,
-            "prompt": prompt,
-            "n": int(body.get("imageCount") or 1),
-            "size": image_size(body.get("ratio") or "16:9", body.get("quality") or "2k"),
-        }
-        data, boundary = multipart_body(fields, files)
-        req = urllib.request.Request(
-            image_edit_endpoint(api),
-            data=data,
-            headers={
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
-                "Authorization": f"Bearer {api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"图生图编辑接口失败 HTTP {exc.code}: {detail[:500]}") from exc
+            ref_files.append((filename or f"reference_{index + 1}.png", mime, content))
+        if not ref_files:
+            raise RuntimeError("图生图没有收到有效参考图。请重新连接图片节点，或在图生图节点里重新添加参考图。")
+        result = None
+        last_detail = ""
+        last_code = ""
+        used_field = field_names[0]
+        for field_name in field_names:
+            files = [(field_name, filename, mime, content) for filename, mime, content in ref_files]
+            fields = {
+                "model": api.get("modelName") or model,
+                "prompt": prompt,
+            }
+            if field_name.endswith(".items"):
+                fields.setdefault(field_name.rsplit(".", 1)[0], "reference")
+            if is_gpt_image_2_all(api):
+                fields["response_format"] = "url"
+            else:
+                if not is_openai_gpt_image_model(api):
+                    fields["n"] = int(body.get("imageCount") or 1)
+                fields["size"] = image_size_for_api(api, body.get("ratio") or "16:9", body.get("quality") or "2k")
+            if is_openai_gpt_image_model(api):
+                fields.update({
+                    "quality": openai_image_quality(body.get("quality") or "2k"),
+                    "output_format": "jpeg",
+                    "background": "auto",
+                    "moderation": "auto",
+                })
+            elif is_dmx_gpt_image_model(api):
+                fields.update({
+                    "quality": "auto",
+                    "output_format": "jpeg",
+                    "background": "auto",
+                    "moderation": "auto",
+                })
+            elif str(api.get("modelName") or "").lower() == "gpt-image-2":
+                fields.update({
+                    "quality": "auto",
+                    "format": "jpeg",
+                    "background": "auto",
+                    "moderation": "auto",
+                })
+            data, boundary = multipart_body(fields, files)
+            try:
+                if is_dmx_gpt_image_model(api):
+                    result = post_multipart_with_requests(image_edit_endpoint(api), api_key, fields, files)
+                else:
+                    req = urllib.request.Request(
+                        image_edit_endpoint(api),
+                        data=data,
+                        headers={
+                            "Content-Type": f"multipart/form-data; boundary={boundary}",
+                            "Authorization": f"Bearer {api_key}",
+                        },
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=180) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                used_field = field_name
+                break
+            except urllib.error.HTTPError as exc:
+                last_code = str(exc.code)
+                last_detail = exc.read().decode("utf-8", errors="ignore")
+                if exc.code in {400, 422, 500} and "image is required" in last_detail.lower():
+                    continue
+                raise RuntimeError(f"图生图编辑接口失败 HTTP {exc.code}: {last_detail[:500]}") from exc
+            except RuntimeError as exc:
+                last_detail = str(exc)
+                last_code = "request"
+                if "image is required" in last_detail.lower():
+                    continue
+                raise RuntimeError(f"图生图编辑接口失败: {last_detail[:500]}") from exc
+        if result is None:
+            tried = ", ".join(field_names)
+            raise RuntimeError(f"图生图编辑接口失败 HTTP {last_code}: 接口始终提示 image is required。已尝试字段：{tried}。原始错误：{last_detail[:300]}")
         output_path = extract_image_result(result, "image_edit")
-        return {"url": public_url(output_path), "raw": result, "model": fields["model"], "alias": model}
+        return {"url": public_url(output_path), "raw": result, "model": api.get("modelName") or model, "alias": model, "imageField": used_field}
 
     payload = {
         "model": api.get("modelName") or model,
         "prompt": prompt,
-        "n": int(body.get("imageCount") or 1),
-        "size": image_size(body.get("ratio") or "16:9", body.get("quality") or "2k"),
     }
+    if is_gpt_image_2_all(api):
+        payload["response_format"] = "url"
+    else:
+        if not is_openai_gpt_image_model(api):
+            payload["n"] = int(body.get("imageCount") or 1)
+        payload["size"] = image_size_for_api(api, body.get("ratio") or "16:9", body.get("quality") or "2k")
+    if is_openai_gpt_image_model(api):
+        payload["quality"] = openai_image_quality(body.get("quality") or "2k")
+        payload["output_format"] = "jpeg"
+    elif str(api.get("modelName") or "").lower() == "gpt-image-2":
+        payload["quality"] = "low"
+        payload["format"] = "jpeg"
     if body.get("preset") and body.get("preset") != "默认":
         payload["prompt"] = f"{payload['prompt']}\nPreset: {body['preset']}"
     if refs:
@@ -767,4 +1081,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
 

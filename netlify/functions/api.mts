@@ -28,6 +28,15 @@ const DEFAULT_CONFIG = {
       website: "https://yungpt.com",
       modelName: "gpt-image-2",
     },
+    i2i: {
+      baseUrl: "",
+      apiKey: "",
+      website: "",
+      modelName: "",
+      endpointType: "openai-edits",
+      referenceField: "image",
+      identityPrompt: "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.",
+    },
   },
   models: {
     video: ["doubao-seedance-2.0"],
@@ -86,6 +95,15 @@ function configFromEnv() {
         apiKey: env("IMAGE2_API_KEY"),
         website: env("IMAGE2_WEBSITE", "https://yungpt.com"),
         modelName: env("IMAGE2_MODEL_NAME", "gpt-image-2"),
+      },
+      i2i: {
+        baseUrl: env("I2I_BASE_URL"),
+        apiKey: env("I2I_API_KEY"),
+        website: env("I2I_WEBSITE"),
+        modelName: env("I2I_MODEL_NAME"),
+        endpointType: env("I2I_ENDPOINT_TYPE", "openai-edits"),
+        referenceField: env("I2I_REFERENCE_FIELD", "image"),
+        identityPrompt: env("I2I_IDENTITY_PROMPT", DEFAULT_CONFIG.apis.i2i.identityPrompt),
       },
     },
   });
@@ -166,11 +184,17 @@ async function handleGenerate(req: Request) {
     }, 501);
   }
 
-  const model = body.model || config.defaults.imageModel || "image2";
+  const model = mode === "i2i" ? "i2i" : (body.model || config.defaults.imageModel || "image2");
   const api = config.apis?.[model] || config.apis?.image2 || {};
   const apiKey = api.apiKey || "";
   if (!apiKey) {
-    return json({ ok: false, error: `${model} API Key is empty. Open settings and fill it first.` }, 400);
+    const error = mode === "i2i"
+      ? "图生图专用 API Key 未填写。请打开设置，填写“图生图专用 / 角色保持”板块。"
+      : `${model} API Key is empty. Open settings and fill it first.`;
+    return json({ ok: false, error }, 400);
+  }
+  if (mode === "i2i" && !String(api.modelName || "").trim()) {
+    return json({ ok: false, error: "图生图专用模型 ID 未填写。请在设置的“图生图专用 / 角色保持”板块填写真实图生图模型名。" }, 400);
   }
 
   const taskId = `image_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;

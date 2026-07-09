@@ -19,6 +19,15 @@
                                 "apiKey":  "",
                                 "website":  "https://yungpt.com",
                                 "modelName":  "gpt-image-2"
+                            },
+                 "i2i":  {
+                              "baseUrl":  "",
+                              "apiKey":  "",
+                              "website":  "",
+                              "modelName":  "",
+                              "endpointType":  "openai-edits",
+                              "referenceField":  "image",
+                              "identityPrompt":  "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user."
                             }
              },
     "models":  {

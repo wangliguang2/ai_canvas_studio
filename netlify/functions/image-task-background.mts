@@ -21,6 +21,32 @@ function imageSize(ratio: string, quality: string) {
   return `${w}x${h}`;
 }
 
+function gptImage2Size(ratio: string, quality: string) {
+  const level = String(quality || "2k").toLowerCase();
+  const map = level === "4k"
+    ? {
+        "1:1": "2048x2048",
+        "16:9": "3840x2160",
+        "9:16": "2160x3840",
+        "4:3": "2048x1152",
+        "3:4": "1024x1536",
+      }
+    : {
+        "1:1": level === "1k" ? "1024x1024" : "2048x2048",
+        "16:9": "2048x1152",
+        "9:16": "1024x1536",
+        "4:3": "1536x1024",
+        "3:4": "1024x1536",
+      };
+  return (map as Record<string, string>)[ratio] || map["16:9"];
+}
+
+function imageSizeForApi(api: any, ratio: string, quality: string) {
+  return String(api.modelName || "").toLowerCase() === "gpt-image-2"
+    ? gptImage2Size(ratio, quality)
+    : imageSize(ratio, quality);
+}
+
 function imageEndpoint(api: any) {
   const base = String(api.baseUrl || "").trim().replace(/\/$/, "");
   const website = String(api.website || "").trim().replace(/\/$/, "");
@@ -70,7 +96,7 @@ export default async (req: Request) => {
   const { taskId, body, config } = await req.json();
   const store = taskStore();
   const startedAt = Date.now();
-  const model = body.model || config.defaults?.imageModel || "image2";
+  const model = body.mode === "i2i" ? "i2i" : (body.model || config.defaults?.imageModel || "image2");
   const api = config.apis?.[model] || config.apis?.image2 || {};
 
   try {
@@ -87,8 +113,16 @@ export default async (req: Request) => {
     if (!apiKey) throw new Error(`${model} API Key is empty. Open settings and fill it first.`);
 
     const refs = Array.isArray(body.references) ? body.references : [];
+    if (body.mode === "i2i" && !refs.length) {
+      throw new Error("图生图没有收到参考图。请把图片节点右侧输出点连接到图生图节点左侧输入点，或点击图生图节点里的“添加”上传参考图。");
+    }
+    if (body.mode === "i2i" && !String(api.modelName || "").trim()) {
+      throw new Error("图生图专用模型 ID 未填写。请在设置的“图生图专用 / 角色保持”板块填写真实图生图模型名。");
+    }
+
+    const identityPrompt = String(api.identityPrompt || "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.").trim();
     const prompt = body.mode === "i2i" && refs.length
-      ? `Image-to-image identity preservation task. Use the provided reference images as strict visual identity anchors. Keep each referenced person's face, age, gender, body type, hairstyle, skin tone, expression tendency, and clothing identity consistent unless the user explicitly asks to change them. Do not replace referenced people with new people. If multiple references are provided, preserve their order as @1, @2, @3 and keep the same subjects. Only change the scene, action, camera, lighting, or style requested by the user.\n\nUser prompt: ${body.prompt || ""}`
+      ? `${identityPrompt}\n\nUser prompt: ${body.prompt || ""}`
       : body.prompt || "";
 
     if (body.mode === "i2i" && refs.length) {
@@ -96,12 +130,21 @@ export default async (req: Request) => {
       form.append("model", api.modelName || model);
       form.append("prompt", prompt);
       form.append("n", String(Number(body.imageCount || 1)));
-      form.append("size", imageSize(body.ratio || "16:9", body.quality || "2k"));
+      form.append("size", imageSizeForApi(api, body.ratio || "16:9", body.quality || "2k"));
+      if (String(api.modelName || "").toLowerCase() === "gpt-image-2") {
+        form.append("quality", "auto");
+        form.append("format", "jpeg");
+        form.append("background", "auto");
+        form.append("moderation", "auto");
+      }
+      let imageFileCount = 0;
       for (const [index, ref] of refs.entries()) {
         if (!ref?.url) continue;
         const image = await imageBlobFromReference(ref.url, req);
-        form.append("image", image.blob, image.filename.replace(".", `_${index + 1}.`));
+        form.append(String(api.referenceField || "image"), image.blob, image.filename.replace(".", `_${index + 1}.`));
+        imageFileCount += 1;
       }
+      if (!imageFileCount) throw new Error("图生图没有收到有效参考图。请重新连接图片节点，或在图生图节点里重新添加参考图。");
       const response = await fetch(imageEditEndpoint(api), {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -133,8 +176,12 @@ export default async (req: Request) => {
       model: api.modelName || model,
       prompt,
       n: Number(body.imageCount || 1),
-      size: imageSize(body.ratio || "16:9", body.quality || "2k"),
+      size: imageSizeForApi(api, body.ratio || "16:9", body.quality || "2k"),
     };
+    if (String(api.modelName || "").toLowerCase() === "gpt-image-2") {
+      payload.quality = "low";
+      payload.format = "jpeg";
+    }
     if (refs.length) {
       const refUrls = refs.map((r: any) => r.url).filter(Boolean);
       payload.references = refUrls;
