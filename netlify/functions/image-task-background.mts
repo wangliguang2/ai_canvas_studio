@@ -4,6 +4,10 @@ function imageStore() {
   return getStore("ai-canvas-images", { consistency: "strong" });
 }
 
+function videoStore() {
+  return getStore("ai-canvas-videos", { consistency: "strong" });
+}
+
 function taskStore() {
   return getStore("ai-canvas-tasks", { consistency: "strong" });
 }
@@ -72,6 +76,14 @@ async function storeImageFromBase64(b64: string, req: Request) {
   return new URL(`/api/image/${id}`, req.url).pathname;
 }
 
+async function storeVideoFromUrl(url: string, req: Request, taskId: string) {
+  const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!response.ok) throw new Error(`视频下载失败 HTTP ${response.status}`);
+  const id = `video_${taskId}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}.mp4`;
+  await videoStore().set(id, Buffer.from(await response.arrayBuffer()), { metadata: { contentType: "video/mp4" } });
+  return new URL(`/api/video/${id}`, req.url).pathname;
+}
+
 async function imageBlobFromReference(url: string, req: Request) {
   const absolute = new URL(url, req.url).toString();
   const response = await fetch(absolute);
@@ -92,11 +104,171 @@ async function parseAndStoreImageResult(result: any, req: Request) {
   return url;
 }
 
+function normalizeArkBaseUrl(value: string) {
+  const base = (value || "https://ark.cn-beijing.volces.com/api/v3").trim().replace(/\/$/, "");
+  if (base.endsWith("/contents/generations/tasks")) return base.replace(/\/contents\/generations\/tasks$/, "");
+  return base;
+}
+
+function arkTaskEndpoint(baseUrl: string) {
+  return `${normalizeArkBaseUrl(baseUrl)}/contents/generations/tasks`;
+}
+
+async function arkRequest(method: string, url: string, apiKey: string, payload?: any) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+  const text = await response.text();
+  let result: any = {};
+  try {
+    result = text ? JSON.parse(text) : {};
+  } catch {
+    result = { raw: text };
+  }
+  if (!response.ok) throw new Error(`Ark API HTTP ${response.status}: ${text.slice(0, 1000)}`);
+  return result;
+}
+
+function firstValue(data: any, names: string[]): any {
+  if (Array.isArray(data)) {
+    for (const value of data) {
+      const found = firstValue(value, names);
+      if (found !== undefined && found !== null && found !== "") return found;
+    }
+    return "";
+  }
+  if (data && typeof data === "object") {
+    for (const name of names) {
+      if (data[name] !== undefined && data[name] !== null && data[name] !== "") return data[name];
+    }
+    for (const value of Object.values(data)) {
+      const found = firstValue(value, names);
+      if (found !== undefined && found !== null && found !== "") return found;
+    }
+  }
+  return "";
+}
+
+function extractRemoteTaskId(result: any) {
+  return String(firstValue(result, ["task_id", "taskId", "id"]) || "");
+}
+
+function extractVideoStatus(result: any) {
+  const text = String(firstValue(result, ["status", "task_status", "state"]) || "").toLowerCase();
+  if (["success", "succeeded", "done", "completed"].includes(text)) return "succeeded";
+  if (["fail", "failed", "error"].includes(text)) return "failed";
+  if (["queued", "pending", "created"].includes(text)) return "queued";
+  if (["running", "processing", "generating"].includes(text)) return "running";
+  return text || "running";
+}
+
+function extractVideoUrl(result: any) {
+  const value = String(firstValue(result, ["video_url", "videoUrl", "url", "download_url", "downloadUrl"]) || "");
+  return value.startsWith("http://") || value.startsWith("https://") ? value : "";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runArkVideoTask(taskId: string, body: any, config: any, req: Request, startedAt: number) {
+  const store = taskStore();
+  const ark = config.apis?.ark || {};
+  const apiKey = String(ark.apiKey || "").trim();
+  if (!apiKey) throw new Error("火山算力 ARK_API_KEY 为空，请在设置里填写。");
+  const model = body.model || ark.modelName || "doubao-seedance-2-0-260";
+  const refs = Array.isArray(body.references) ? body.references : [];
+  const mediaItems = refs.map((ref: any) => {
+    const url = ref?.url ? new URL(ref.url, req.url).toString() : "";
+    if (!url) return null;
+    if (ref?.kind === "video") return { type: "video_url", video_url: { url }, role: ref.role || "reference_video" };
+    if (ref?.kind === "audio") return { type: "audio_url", audio_url: { url }, role: ref.role || "reference_audio" };
+    return { type: "image_url", image_url: { url }, role: ref?.role || "reference_image" };
+  }).filter(Boolean);
+  const payload = {
+    model,
+    content: [
+      { type: "text", text: body.prompt || "" },
+      ...mediaItems,
+    ],
+    generate_audio: !!body.generateAudio,
+    ratio: body.ratio || config.defaults?.ratio || "16:9",
+    duration: Number(body.duration || config.defaults?.duration || 5),
+    resolution: body.resolution || "720p",
+    watermark: !!body.watermark,
+  };
+  const endpoint = arkTaskEndpoint(ark.baseUrl || ark.website || "");
+  const createResult = await arkRequest("POST", endpoint, apiKey, payload);
+  const remoteTaskId = extractRemoteTaskId(createResult);
+  if (!remoteTaskId) throw new Error(`火山算力没有返回任务 ID：${JSON.stringify(createResult).slice(0, 1000)}`);
+
+  await store.setJSON(taskId, {
+    id: taskId,
+    status: "running",
+    mode: body.mode,
+    model,
+    videoProvider: "ark",
+    remoteTaskId,
+    rawCreateResponse: createResult,
+    progress: 45,
+    createdAt: startedAt,
+  });
+
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await sleep(8000);
+    const info = await arkRequest("GET", `${endpoint}/${remoteTaskId}`, apiKey);
+    const status = extractVideoStatus(info);
+    const videoUrl = extractVideoUrl(info);
+    await store.setJSON(taskId, {
+      id: taskId,
+      status,
+      mode: body.mode,
+      model,
+      videoProvider: "ark",
+      remoteTaskId,
+      remoteInfo: info,
+      progress: Math.min(95, 45 + attempt),
+      createdAt: startedAt,
+    });
+    if (status === "succeeded") {
+      if (!videoUrl) throw new Error("火山任务成功，但没有找到视频下载地址。");
+      const localUrl = await storeVideoFromUrl(videoUrl, req, taskId);
+      await store.setJSON(taskId, {
+        id: taskId,
+        status: "succeeded",
+        mode: body.mode,
+        model,
+        videoProvider: "ark",
+        remoteTaskId,
+        remoteUrl: videoUrl,
+        url: localUrl,
+        mime: "video/mp4",
+        progress: 100,
+        createdAt: startedAt,
+        finishedAt: Date.now(),
+      });
+      return;
+    }
+    if (status === "failed") {
+      throw new Error(`火山视频生成失败：${JSON.stringify(info).slice(0, 1000)}`);
+    }
+  }
+  throw new Error("火山视频生成超时，请稍后在历史记录里查看或重新提交。");
+}
+
 export default async (req: Request) => {
   const { taskId, body, config } = await req.json();
   const store = taskStore();
   const startedAt = Date.now();
-  const model = body.mode === "i2i" ? "i2i" : (body.model || config.defaults?.imageModel || "image2");
+  const isVideo = body.mode === "t2v" || body.mode === "i2v";
+  const model = isVideo
+    ? (body.model || config.apis?.ark?.modelName || config.defaults?.videoModel || "doubao-seedance-2-0-260")
+    : body.mode === "i2i" ? "i2i" : (body.model || config.defaults?.imageModel || "image2");
   const api = config.apis?.[model] || config.apis?.image2 || {};
 
   try {
@@ -108,6 +280,11 @@ export default async (req: Request) => {
       createdAt: startedAt,
       progress: 35,
     });
+
+    if (isVideo) {
+      await runArkVideoTask(taskId, body, config, req, startedAt);
+      return;
+    }
 
     const apiKey = api.apiKey || "";
     if (!apiKey) throw new Error(`${model} API Key is empty. Open settings and fill it first.`);

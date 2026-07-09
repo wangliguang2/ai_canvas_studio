@@ -120,6 +120,10 @@ function imageStore() {
   return getStore("ai-canvas-images", { consistency: "strong" });
 }
 
+function videoStore() {
+  return getStore("ai-canvas-videos", { consistency: "strong" });
+}
+
 function taskStore() {
   return getStore("ai-canvas-tasks", { consistency: "strong" });
 }
@@ -177,18 +181,18 @@ async function handleGenerate(req: Request) {
   const mode = body.mode || body.type || "t2v";
   const config = deepMerge(configFromEnv(), body.clientConfig || {});
 
-  if (mode === "t2v" || mode === "i2v") {
-    return json({
-      ok: false,
-      error: "Netlify cloud deploy currently supports image generation. Seedance2 video generation still needs the local Python service or a dedicated long-running backend.",
-    }, 501);
-  }
-
-  const model = mode === "i2i" ? "i2i" : (body.model || config.defaults.imageModel || "image2");
+  const isVideo = mode === "t2v" || mode === "i2v";
+  const model = isVideo
+    ? (body.model || config.apis?.ark?.modelName || config.defaults.videoModel || "doubao-seedance-2-0-260")
+    : mode === "i2i" ? "i2i" : (body.model || config.defaults.imageModel || "image2");
+  const provider = isVideo ? "ark" : (body.videoProvider || config.defaults?.videoProvider || "maas");
   const api = config.apis?.[model] || config.apis?.image2 || {};
-  const apiKey = api.apiKey || "";
+  const videoApi = config.apis?.ark || {};
+  const apiKey = isVideo ? (videoApi.apiKey || "") : (api.apiKey || "");
   if (!apiKey) {
-    const error = mode === "i2i"
+    const error = isVideo
+      ? "火山算力 ARK_API_KEY 为空。请打开设置，填写“火山算力”板块。"
+      : mode === "i2i"
       ? "图生图专用 API Key 未填写。请打开设置，填写“图生图专用 / 角色保持”板块。"
       : `${model} API Key is empty. Open settings and fill it first.`;
     return json({ ok: false, error }, 400);
@@ -203,6 +207,7 @@ async function handleGenerate(req: Request) {
     status: "queued",
     mode,
     model,
+    videoProvider: isVideo ? provider : undefined,
     createdAt: Date.now(),
   };
   await taskStore().setJSON(taskId, task);
@@ -233,6 +238,17 @@ export default async (req: Request) => {
       return new Response(image, {
         headers: {
           "Content-Type": contentType,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
+    if (req.method === "GET" && path.startsWith("/api/video/")) {
+      const key = decodeURIComponent(path.split("/").pop() || "");
+      const video = await videoStore().get(key, { type: "arrayBuffer" });
+      if (!video) return new Response("Not found", { status: 404 });
+      return new Response(video, {
+        headers: {
+          "Content-Type": "video/mp4",
           "Cache-Control": "public, max-age=31536000, immutable",
         },
       });
