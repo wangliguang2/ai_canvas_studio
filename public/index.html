@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Canvas Studio</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=202607067">
 </head>
 <body>
   <div id="app">
@@ -12,10 +12,6 @@
       <button class="rail-item active" data-tab="assets" title="资产">
         <span>▣</span>
         <em>资产</em>
-      </button>
-      <button class="rail-item" data-tab="workflow" title="工作流">
-        <span>⌘</span>
-        <em>工作流</em>
       </button>
       <button class="rail-item" data-tab="history" title="历史">
         <span>◷</span>
@@ -40,16 +36,6 @@
         <div id="assetList" class="asset-list"></div>
       </section>
 
-      <section class="side-tab" data-panel="workflow">
-        <div class="mini-title">工作流</div>
-        <div class="tool-section">
-          <button data-action="addPrompt">提示词节点</button>
-          <button data-action="addT2V">视频生成</button>
-          <button data-action="addText">文本节点</button>
-          <button data-action="save">保存当前画布</button>
-        </div>
-      </section>
-
       <section class="side-tab" data-panel="history">
         <div class="mini-title">历史</div>
         <div id="historyList" class="history-list"></div>
@@ -61,24 +47,81 @@
     <main class="stage-wrap">
       <div class="topbar">
         <div class="segmented">
-          <button class="active" data-mode="t2i">文生图</button>
-          <button data-mode="i2i">图生图</button>
-          <button data-mode="t2v">文生视频</button>
-          <button data-mode="i2v">图生视频</button>
+          <button class="active" data-mode="t2i">项目管理</button>
+          <button data-mode="i2i">本地素材</button>
+          <button data-mode="t2v">提示词预设</button>
+          <button data-mode="i2v">爆款克隆</button>
+        </div>
+        <div class="designer-balance">
+          <span class="designer-info">设计师：王黎光 VX 13679166735</span>
+          <span class="balance-pill image-balance">生图余额 <b id="imageBalance">¥ --</b></span>
+          <span class="balance-pill video-balance">视频余额 <b id="videoBalance">¥ --</b></span>
         </div>
         <div class="status" id="status">就绪</div>
         <div class="top-actions">
-          <button data-action="fit">回到中心</button>
+          <button id="gridSettingsToggle" type="button" title="网格与连线设置">网格</button>
+          <button data-action="fit">显示全部</button>
           <button data-action="save">保存画布</button>
           <button data-action="clear">清空画布</button>
         </div>
       </div>
+      <div id="gridSettingsPanel" class="grid-settings-panel hidden">
+        <label>网格间距 <input id="gridSpacing" type="range" min="8" max="40" value="20"><b id="gridSpacingValue">20 px</b></label>
+        <label>网格点 <input id="gridDot" type="range" min="1" max="6" value="1"><b id="gridDotValue">1 px</b></label>
+        <label>连线粗细 <input id="linkWidth" type="range" min="1" max="8" value="3"><b id="linkWidthValue">3 px</b></label>
+      </div>
       <div id="stage" class="stage">
+        <div id="projectBoard" class="project-board hidden"></div>
+        <div id="materialBoard" class="material-board hidden"></div>
+        <button id="projectTitleBar" class="project-title-bar" type="button" title="点击重命名项目"></button>
         <svg id="links" class="links"></svg>
         <div id="world" class="world"></div>
         <div id="selectionBox" class="selection-box hidden"></div>
       </div>
     </main>
+
+    <button id="agentFloat" class="agent-float" type="button" title="打开智能体">
+      <i></i>
+      <span>Agent</span>
+    </button>
+
+    <aside id="agentDock" class="agent-dock hidden">
+      <div class="agent-head">
+        <div>
+          <strong>创作智能体</strong>
+          <span>配置大模型，让它帮你拆提示词、做图、跑流程</span>
+        </div>
+        <button type="button" id="closeAgentDock">×</button>
+      </div>
+      <div class="agent-config">
+        <label>大模型</label>
+        <select id="agentModel">
+          <option>gpt-4.1</option>
+          <option>gpt-4o</option>
+          <option>doubao-pro</option>
+        </select>
+        <label>系统指令</label>
+        <textarea id="agentSystemPrompt" placeholder="例如：你是一个视频导演，负责把素材拆成可执行工作流。"></textarea>
+      </div>
+      <div class="agent-chatbar">
+        <div class="agent-upload-strip">
+          <button type="button" id="agentUploadButton" title="添加参考图">+</button>
+          <div id="agentRefs" class="agent-refs"></div>
+        </div>
+        <textarea id="agentInput" placeholder="先上传参考图，再用 @ 引用，输入你的想法。"></textarea>
+        <div class="agent-command-row">
+          <button type="button" class="agent-mode-button">✣ Agent</button>
+          <button type="button" class="agent-tool-button">@</button>
+          <button type="button" class="agent-tool-button">□</button>
+          <select id="agentAskMode">
+            <option>Ask</option>
+            <option>Auto</option>
+            <option>Plan</option>
+          </select>
+          <button type="button" class="agent-send">↑</button>
+        </div>
+      </div>
+    </aside>
 
     <section id="settings" class="settings hidden">
       <div class="settings-card">
@@ -87,22 +130,9 @@
           <button id="closeSettings">关闭</button>
         </div>
         <div class="settings-grid">
-          <div class="settings-video-maas">
-            <h3 class="settings-provider-title">
-              <label><input type="radio" name="videoProvider" id="providerMaas" value="maas"> 移动算力</label>
-            </h3>
-            <label>API 地址</label>
-            <input id="maasBaseUrl">
-            <label>API Key</label>
-            <input id="maasApiKey" type="password">
-            <label>网站</label>
-            <input id="maasWebsite">
-            <label>视频模型名</label>
-            <input id="videoModels">
-          </div>
           <div class="settings-video-ark">
             <h3 class="settings-provider-title">
-              <label><input type="radio" name="videoProvider" id="providerArk" value="ark"> 火山算力</label>
+              <label><input type="radio" name="videoProvider" id="providerArk" value="ark" checked> 火山算力</label>
             </h3>
             <label>ARK_BASE_URL <span class="required">*</span></label>
             <input id="arkBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
@@ -174,9 +204,7 @@
               <div>
                 <label>分辨率</label>
                 <select id="multiResolution">
-                  <option>480p</option>
-                  <option>720p</option>
-                  <option>1080p</option>
+                  <option>4K</option>
                 </select>
               </div>
               <div>
@@ -225,17 +253,107 @@
       <button data-menu="i2i">图生图节点</button>
       <button data-menu="t2v">文生视频</button>
       <button data-menu="i2v">图生视频</button>
+      <button data-menu="director">导演台</button>
+      <button data-menu="compare">对比节点</button>
+      <div class="sep image-node-menu"></div>
+      <button class="image-node-menu" data-menu="add-asset">加入资产</button>
+      <div class="sep"></div>
+      <button data-menu="arrange">整理节点</button>
       <div class="sep selected-menu"></div>
-      <button class="selected-menu" data-menu="arrange">整理节点</button>
       <button class="selected-menu" data-menu="group">打组</button>
     </div>
+
+    <section id="assetDialog" class="asset-dialog hidden">
+      <div class="asset-dialog-card">
+        <button class="asset-dialog-close" data-close-asset-dialog>×</button>
+        <div class="asset-dialog-tabs">
+          <strong>创建资产</strong>
+        </div>
+        <div class="asset-dialog-body">
+          <div>
+            <label>封面 <span class="required">*</span></label>
+            <div id="assetDialogPreview" class="asset-dialog-preview"></div>
+          </div>
+          <div>
+            <label>名称 <span class="required">*</span></label>
+            <input id="assetName" placeholder="我的资产">
+            <label>分类 <span class="required">*</span></label>
+            <select id="assetCategory">
+              <option value="person">人物</option>
+              <option value="scene">场景</option>
+              <option value="object">物品</option>
+              <option value="style">风格</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+        </div>
+        <div class="asset-dialog-actions">
+          <button data-close-asset-dialog>取消</button>
+          <button class="primary" data-confirm-asset>创建</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="directorStage" class="director-stage hidden">
+      <header class="director-stage-head">
+        <strong>3D导演台</strong>
+        <div class="director-view-tabs">
+          <button class="active">导演视角</button>
+          <button>机位视角</button>
+        </div>
+        <div class="director-stage-actions">
+          <button type="button" title="帮助">?</button>
+          <button type="button" id="closeDirectorStage">×</button>
+        </div>
+      </header>
+      <aside class="director-left">
+        <h3>场景</h3>
+        <input placeholder="请输入搜索内容">
+        <button class="active">▣ 机位1</button>
+        <button>♙ 角色A</button>
+      </aside>
+      <main class="director-viewport">
+        <div class="director-axis-widget"><i></i><b></b><em></em><span></span><button>重置视角</button></div>
+        <div class="director-3d-world">
+          <div class="director-3d-grid"></div>
+          <div class="director-camera-frame"></div>
+          <div class="director-avatar">
+            <strong>角色A</strong>
+            <i></i>
+            <span></span>
+            <b class="axis-x"></b>
+            <b class="axis-y"></b>
+            <b class="axis-z"></b>
+          </div>
+        </div>
+        <div class="director-toolbar">
+          <button>⌁</button><button>♙</button><button>视</button><button>▣</button><button>⌗</button><button>▤</button><button>↗</button><button class="active">▱</button><button>⟳</button>
+        </div>
+      </main>
+      <aside class="director-right">
+        <h3>角色</h3>
+        <div class="director-tabs"><button class="active">属性</button><button>姿势</button></div>
+        <label>名称<input value="角色A"></label>
+        <label>位置</label>
+        <div class="director-triplet"><input value="X 0"><input value="Y 0"><input value="Z 0"></div>
+        <label>旋转</label>
+        <div class="director-triplet"><input value="X 0"><input value="Y 0"><input value="Z 0"></div>
+        <label>缩放</label>
+        <div class="director-triplet"><input value="X 1.03"><input value="Y 1.03"><input value="Z 1.03"></div>
+        <label>统一缩放</label>
+        <input type="range" value="1" min=".2" max="2" step=".01">
+        <label>颜色</label>
+        <div class="director-color"><i></i><input value="#4F8EF7"></div>
+      </aside>
+    </section>
 
     <input id="fileInput" type="file" multiple accept="image/*,video/*,audio/*" hidden>
     <input id="imageInput" type="file" multiple accept="image/*" hidden>
     <input id="videoInput" type="file" multiple accept="video/*" hidden>
     <input id="audioInput" type="file" multiple accept="audio/*" hidden>
+    <input id="agentRefInput" type="file" multiple accept="image/*" hidden>
   </div>
-  <script src="/app.js?v=202607066"></script>
+  <script src="/app.js?v=202607067"></script>
 </body>
 </html>
 

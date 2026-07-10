@@ -79,7 +79,7 @@ DEFAULT_CONFIG = {
             "queryModel": "seedance-2-0-get",
             "requestFormat": "Responses JSON 多模态",
             "authMode": "bearer",
-            "resolution": "720p",
+            "resolution": "4K",
             "ratio": "16:9",
             "duration": 8,
             "watermark": False,
@@ -88,12 +88,12 @@ DEFAULT_CONFIG = {
         },
     },
     "models": {
-        "video": ["doubao-seedance-2.0"],
+        "video": ["doubao-seedance-2-0-260"],
         "image": ["banana", "image2"],
     },
     "defaults": {
-        "videoModel": "doubao-seedance-2.0",
-        "videoProvider": "maas",
+        "videoModel": "doubao-seedance-2-0-260",
+        "videoProvider": "ark",
         "imageModel": "banana",
         "ratio": "16:9",
         "duration": 8,
@@ -128,16 +128,13 @@ def normalize_config(config: dict) -> None:
     apis.setdefault("multimodal", {})
     defaults = config.setdefault("defaults", {})
     models = config.setdefault("models", {})
-    models.setdefault("video", ["doubao-seedance-2.0"])
-    defaults.setdefault("videoProvider", "maas")
+    models["video"] = [ark.get("modelName") or "doubao-seedance-2-0-260"]
+    defaults["videoProvider"] = "ark"
     ark = apis["ark"]
     ark.setdefault("baseUrl", "https://ark.cn-beijing.volces.com/api/v3")
     ark.setdefault("website", "https://ark.cn-beijing.volces.com")
     ark.setdefault("modelName", "doubao-seedance-2-0-260")
-    if defaults.get("videoProvider") == "ark":
-        defaults["videoModel"] = ark.get("modelName") or "doubao-seedance-2-0-260"
-    else:
-        defaults["videoModel"] = "doubao-seedance-2.0"
+    defaults["videoModel"] = ark.get("modelName") or "doubao-seedance-2-0-260"
     for key in ("banana", "image2"):
         api = config.get("apis", {}).get(key, {})
         base_url = api.get("baseUrl", "")
@@ -162,7 +159,7 @@ def normalize_config(config: dict) -> None:
     multimodal.setdefault("queryModel", "seedance-2-0-get")
     multimodal.setdefault("requestFormat", "Responses JSON 多模态")
     multimodal.setdefault("authMode", "bearer")
-    multimodal.setdefault("resolution", "720p")
+    multimodal.setdefault("resolution", "4K")
     multimodal.setdefault("ratio", "16:9")
     multimodal.setdefault("duration", 8)
     multimodal.setdefault("watermark", False)
@@ -182,6 +179,161 @@ def deep_merge(base: dict, patch: dict) -> dict:
 
 def save_config(config: dict) -> None:
     CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def provider_root(api: dict) -> str:
+    raw = (api.get("website") or api.get("baseUrl") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return raw
+    path = parsed.path.rstrip("/")
+    if "/v1" in path:
+        path = path.split("/v1", 1)[0]
+    return f"{parsed.scheme}://{parsed.netloc}{path}".rstrip("/")
+
+
+def provider_v1_root(api: dict) -> str:
+    base = (api.get("baseUrl") or "").strip().rstrip("/")
+    website = (api.get("website") or "").strip().rstrip("/")
+    root = base or website
+    if not root:
+        return ""
+    if "/v1" in root:
+        return root.split("/v1", 1)[0].rstrip("/") + "/v1"
+    return root.rstrip("/") + "/v1"
+
+
+def find_balance_value(data) -> float | None:
+    if isinstance(data, (int, float)):
+        return float(data)
+    if isinstance(data, str):
+        try:
+            return float(data.replace(",", "").strip())
+        except ValueError:
+            return None
+    if isinstance(data, list):
+        for item in data:
+            value = find_balance_value(item)
+            if value is not None:
+                return value
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in (
+        "total_available",
+        "available_amount",
+        "available_balance",
+        "available_quota",
+        "available",
+        "balance",
+        "cash_balance",
+        "total_balance",
+        "credit",
+        "credits",
+        "quota",
+        "left_quota",
+        "remain",
+        "remaining",
+        "remaining_amount",
+        "remaining_balance",
+        "remaining_quota",
+        "amount",
+        "money",
+        "value",
+    ):
+        if key in data:
+            value = find_balance_value(data.get(key))
+            if value is not None:
+                return value
+    for key in ("data", "result", "account", "wallet", "billing", "grant", "grants", "user", "profile", "token"):
+        if key in data:
+            value = find_balance_value(data.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def query_provider_balance(name: str, api: dict) -> dict:
+    api_key = (api.get("apiKey") or "").strip()
+    if not api_key:
+        return {"ok": False, "error": "missing_key", "message": "API Key 未配置"}
+    root = provider_root(api)
+    v1 = provider_v1_root(api)
+    candidates = []
+    if v1:
+        candidates.extend([
+            f"{v1}/dashboard/billing/credit_grants",
+            f"{v1}/dashboard/billing/usage",
+            f"{v1}/billing/credit_grants",
+            f"{v1}/credit_grants",
+            f"{v1}/balance",
+            f"{v1}/user/balance",
+            f"{v1}/user/info",
+            f"{v1}/account/balance",
+        ])
+    if root:
+        candidates.extend([
+            f"{root}/dashboard/billing/credit_grants",
+            f"{root}/dashboard/billing/usage",
+            f"{root}/api/user/balance",
+            f"{root}/api/v1/user/balance",
+            f"{root}/api/v1/user/info",
+            f"{root}/api/user/self",
+            f"{root}/api/balance",
+            f"{root}/api/account/balance",
+            f"{root}/api/token",
+            f"{root}/console/token",
+        ])
+    seen = set()
+    errors = []
+    for url in candidates:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "AI-Canvas-Studio/0.1",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+            data = json.loads(raw)
+            balance = find_balance_value(data)
+            if balance is not None:
+                return {"ok": True, "balance": balance, "source": url, "provider": name}
+            errors.append(f"{url}: 未找到余额字段")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:220]
+            errors.append(f"{url}: HTTP {exc.code} {detail}")
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    return {
+        "ok": False,
+        "error": "query_failed",
+        "message": errors[-1] if errors else "没有可用余额接口",
+        "provider": name,
+    }
+
+
+def active_balance_sources(config: dict) -> tuple[tuple[str, dict], tuple[str, dict]]:
+    apis = config.get("apis", {})
+    image_api = apis.get("image2") or apis.get("banana") or {}
+    if not (image_api.get("apiKey") or "").strip() and (apis.get("i2i") or {}).get("apiKey"):
+        image_api = apis.get("i2i") or image_api
+    video_api = apis.get("ark") or {}
+    video_name = "ark"
+    if not (video_api.get("apiKey") or "").strip() and (apis.get("multimodal") or {}).get("apiKey"):
+        video_api = apis.get("multimodal") or video_api
+        video_name = "multimodal"
+    return ("image", image_api), (video_name, video_api)
 
 
 def safe_name(name: str) -> str:
@@ -698,8 +850,7 @@ def generate_image(config: dict, body: dict) -> dict:
 
 
 def video_provider(config: dict, body: dict | None = None) -> str:
-    provider = (body or {}).get("videoProvider") or config.get("defaults", {}).get("videoProvider") or "maas"
-    return "ark" if provider == "ark" else "maas"
+    return "ark"
 
 
 def maas_model_name(config: dict) -> str:
@@ -902,6 +1053,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             self.send_json(load_config())
             return
+        if path == "/api/balances":
+            config = load_config()
+            image_source, video_source = active_balance_sources(config)
+            self.send_json({
+                "image": query_provider_balance(*image_source),
+                "video": query_provider_balance(*video_source),
+                "updatedAt": time.time(),
+            })
+            return
         if path == "/api/tasks":
             self.send_json({"tasks": TASKS})
             return
@@ -940,7 +1100,7 @@ class Handler(BaseHTTPRequestHandler):
             model = config.get("apis", {}).get("ark", {}).get("modelName") or "doubao-seedance-2-0-260"
         ratio = body.get("ratio") or config["defaults"]["ratio"]
         duration = int(body.get("duration") or config["defaults"]["duration"])
-        resolution = body.get("resolution") or body.get("quality") or "720p"
+        resolution = body.get("resolution") or body.get("quality") or "4K"
         watermark = bool(body.get("watermark", config["defaults"]["watermark"]))
         generate_audio = bool(body.get("generateAudio", config["defaults"]["generateAudio"]))
         refs = body.get("references", [])

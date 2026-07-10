@@ -4,7 +4,18 @@
   selectedId: null,
   selectedIds: [],
   generationHistory: [],
+  assets: [],
+  projects: [],
+  currentProjectId: '',
+  projectView: false,
+  materialView: false,
+  materialFilter: 'all',
+  materialUploadType: '',
+  promptPresets: [],
+  promptPresetFilter: 'all',
+  selectedPromptPresetId: '',
   assetFilter: 'all',
+  assetDraftNodeId: null,
   selectedLinkId: null,
   linking: null,
   pendingLink: null,
@@ -16,11 +27,14 @@
   scale: 1,
   pan: { x: -49800, y: -49800 },
   menuPoint: { x: 0, y: 0 },
+  menuNodeId: null,
   config: null,
   undoStack: [],
   lastSnapshot: '',
   restoring: false,
   hoverVideoNodeId: null,
+  grid: { spacing: 20, dot: 1, linkWidth: 3 },
+  agentRefs: [],
 };
 
 const els = {
@@ -35,9 +49,34 @@ const els = {
   selectionBox: document.querySelector('#selectionBox'),
   assetList: document.querySelector('#assetList'),
   historyList: document.querySelector('#historyList'),
+  projectBoard: document.querySelector('#projectBoard'),
+  materialBoard: document.querySelector('#materialBoard'),
+  projectTitleBar: document.querySelector('#projectTitleBar'),
+  imageBalance: document.querySelector('#imageBalance'),
+  videoBalance: document.querySelector('#videoBalance'),
   menuTitle: document.querySelector('#menuTitle'),
+  assetDialog: document.querySelector('#assetDialog'),
+  assetDialogPreview: document.querySelector('#assetDialogPreview'),
+  assetName: document.querySelector('#assetName'),
+  assetCategory: document.querySelector('#assetCategory'),
   status: document.querySelector('#status'),
   prompt: document.querySelector('#prompt'),
+  agentDock: document.querySelector('#agentDock'),
+  closeAgentDock: document.querySelector('#closeAgentDock'),
+  agentFloat: document.querySelector('#agentFloat'),
+  directorStage: document.querySelector('#directorStage'),
+  closeDirectorStage: document.querySelector('#closeDirectorStage'),
+  agentUploadButton: document.querySelector('#agentUploadButton'),
+  agentRefInput: document.querySelector('#agentRefInput'),
+  agentRefs: document.querySelector('#agentRefs'),
+  gridSettingsToggle: document.querySelector('#gridSettingsToggle'),
+  gridSettingsPanel: document.querySelector('#gridSettingsPanel'),
+  gridSpacing: document.querySelector('#gridSpacing'),
+  gridDot: document.querySelector('#gridDot'),
+  linkWidth: document.querySelector('#linkWidth'),
+  gridSpacingValue: document.querySelector('#gridSpacingValue'),
+  gridDotValue: document.querySelector('#gridDotValue'),
+  linkWidthValue: document.querySelector('#linkWidthValue'),
   model: document.querySelector('#model'),
   ratio: document.querySelector('#ratio'),
   duration: document.querySelector('#duration'),
@@ -62,6 +101,8 @@ const typeNames = {
   i2i: '图生图',
   t2v: '文生视频',
   i2v: '图生视频',
+  director: '导演台',
+  compare: '对比节点',
 };
 
 const IMAGE_UTILITY_PROMPTS = {
@@ -70,6 +111,64 @@ const IMAGE_UTILITY_PROMPTS = {
   paintNote: '在原图基础上添加专业绘画注释，保留原图主体身份、五官、服饰和构图，在画面周围加入清晰的绘画分析标注、结构线、光影说明、色彩说明、服装材质说明和关键细节箭头，排版干净专业，像角色设计讲解稿',
 };
 
+const PROMPT_PRESET_CATEGORIES = [
+  ['all', '全部'],
+  ['view', '视角'],
+  ['shot', '分镜'],
+  ['character', '角色'],
+  ['product', '产品'],
+  ['light', '光影'],
+  ['mine', '我的'],
+];
+
+const DEFAULT_PROMPT_PRESETS = [
+  {
+    id: 'preset_360_panorama',
+    title: '360全景图',
+    category: 'view',
+    tag: '内置',
+    desc: '用于生成360全景、VR全景、可左右循环拼接的空间视角，适合室内空间、展厅、场景视角。',
+    positive: '生成一张720度的全景VR图，左右边缘100%像素级无缝衔接，可无限循环拼接；上下极点自然过渡，无明显断层或拉伸，场景一致性强，空间结构完整，细节丰富，真实摄影质感，高清画质。',
+    negative: 'seam, visible seam, hard seam, broken panorama, discontinuous edge, mismatched left and right edges, distorted poles, stretched ceiling, stretched floor, warped horizon, inconsistent scene logic, impossible space, no exit in closed room, text, letters, labels, watermark, logo, blurry, low quality',
+  },
+  {
+    id: 'preset_character_keep',
+    title: '角色一致性',
+    category: 'character',
+    tag: '内置',
+    desc: '用于人物图生图、图生视频时保持同一张脸、服装和气质。',
+    positive: '严格参考原图人物身份，保持五官比例、脸型、年龄感、发型、肤色、服饰版型和核心气质不变；只改变用户指定的场景、镜头、动作或光影，真实摄影质感，面部清晰自然。',
+    negative: 'different person, face changed, identity shift, wrong age, wrong hairstyle, changed clothing, extra fingers, deformed hands, distorted face, watermark, text, logo, blurry, low quality',
+  },
+  {
+    id: 'preset_product_clean',
+    title: '产品棚拍',
+    category: 'product',
+    tag: '内置',
+    desc: '用于产品主图、详情图、干净商业展示。',
+    positive: '商业产品摄影，主体居中，产品边缘清晰，材质纹理真实，柔和棚拍灯光，干净背景，轻微反射，构图稳定，高清细节，适合电商主图和宣传海报。',
+    negative: 'messy background, wrong logo, text error, distorted product, extra object, low quality, blurry, watermark, overexposure',
+  },
+  {
+    id: 'preset_cinematic_light',
+    title: '电影光影',
+    category: 'light',
+    tag: '内置',
+    desc: '用于增强画面的电影感、层次和光影氛围。',
+    positive: '电影摄影质感，真实镜头语言，主光与轮廓光层次清晰，柔和环境光，浅景深，细腻胶片颗粒，高动态范围，真实材质反射，画面有空间纵深。',
+    negative: 'flat lighting, over saturated, plastic skin, fake render, low contrast, watermark, text, logo, blurry',
+  },
+  {
+    id: 'preset_15s_storyboard',
+    title: '15秒视频分镜',
+    category: 'shot',
+    tag: '内置',
+    desc: '用于把一个主题扩成短视频时间轴提示词。',
+    positive: '15秒，连续电影镜头，按0-3秒、3-6秒、6-10秒、10-15秒拆分；每段包含镜头运动、主体动作、物体运动、场景变化、光影色彩和真实材质细节；使用自然转场，不要硬切。',
+    negative: 'split screen, grid layout, static zoom, PPT style, subtitle, watermark, cartoon, face changing, low quality',
+  },
+];
+
 function uid(prefix = 'node') {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -77,6 +176,65 @@ function uid(prefix = 'node') {
 function setStatus(text) {
   els.status.textContent = text;
 }
+
+function loadGridSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('ai_canvas_grid_settings') || '{}');
+    state.grid = {
+      spacing: Number(saved.spacing) || 20,
+      dot: Number(saved.dot) || 1,
+      linkWidth: Number(saved.linkWidth) || 3,
+    };
+  } catch {
+    state.grid = { spacing: 20, dot: 1, linkWidth: 3 };
+  }
+  applyGridSettings({ skipRender: true });
+}
+
+function saveGridSettings() {
+  localStorage.setItem('ai_canvas_grid_settings', JSON.stringify(state.grid));
+}
+
+function applyGridSettings(options = {}) {
+  const spacing = Math.max(8, Math.min(40, Number(state.grid.spacing) || 20));
+  const dot = Math.max(1, Math.min(6, Number(state.grid.dot) || 1));
+  const linkWidth = Math.max(1, Math.min(8, Number(state.grid.linkWidth) || 3));
+  state.grid = { spacing, dot, linkWidth };
+  document.documentElement.style.setProperty('--grid-spacing', `${spacing}px`);
+  document.documentElement.style.setProperty('--grid-dot', `${dot}px`);
+  document.documentElement.style.setProperty('--link-width', `${linkWidth}`);
+  if (els.gridSpacing) els.gridSpacing.value = spacing;
+  if (els.gridDot) els.gridDot.value = dot;
+  if (els.linkWidth) els.linkWidth.value = linkWidth;
+  if (els.gridSpacingValue) els.gridSpacingValue.textContent = `${spacing} px`;
+  if (els.gridDotValue) els.gridDotValue.textContent = `${dot} px`;
+  if (els.linkWidthValue) els.linkWidthValue.textContent = `${linkWidth} px`;
+  if (!options.skipRender && typeof renderLinks === 'function') renderLinks();
+}
+
+function renderAgentRefs() {
+  if (!els.agentRefs) return;
+  els.agentRefs.innerHTML = state.agentRefs.map((ref, index) => `
+    <div class="agent-ref-item">
+      <img class="agent-ref-thumb" src="${escapeAttr(ref.url)}" alt="参考图${index + 1}">
+      <button type="button" data-agent-ref-remove="${index}" title="移除参考图">×</button>
+    </div>
+  `).join('');
+}
+
+function addAgentRefFiles(files) {
+  const imageFiles = [...files].filter(file => file.type?.startsWith('image/'));
+  if (!imageFiles.length) return;
+  imageFiles.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.agentRefs.push({ name: file.name, url: String(reader.result || '') });
+      renderAgentRefs();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function mergeConfig(base, patch) {
   const merged = JSON.parse(JSON.stringify(base || {}));
   if (!patch || typeof patch !== 'object') return merged;
@@ -112,18 +270,17 @@ function normalizeConfigShape(config) {
   cfg.apis.i2i ||= {};
   cfg.apis.multimodal ||= {};
   cfg.models ||= {};
-  cfg.models.video ||= ['doubao-seedance-2.0'];
+  cfg.models.video ||= ['doubao-seedance-2-0-260'];
   cfg.models.image ||= ['banana', 'image2'];
   cfg.defaults ||= {};
-  cfg.defaults.videoProvider ||= 'maas';
+  cfg.defaults.videoProvider = 'ark';
   cfg.defaults.imageSettingsMode ||= 'standard';
-  cfg.defaults.videoModel ||= cfg.defaults.videoProvider === 'ark'
-    ? (cfg.apis.ark.modelName || 'doubao-seedance-2-0-260')
-    : (cfg.models.video[0] || 'doubao-seedance-2.0');
+  cfg.defaults.videoModel = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
   cfg.defaults.imageModel ||= cfg.models.image[0] || 'banana';
   cfg.apis.ark.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
   cfg.apis.ark.website ||= 'https://ark.cn-beijing.volces.com';
   cfg.apis.ark.modelName ||= 'doubao-seedance-2-0-260';
+  cfg.models.video = [cfg.apis.ark.modelName];
   cfg.apis.i2i.endpointType ||= 'openai-edits';
   cfg.apis.i2i.referenceField ||= 'image';
   cfg.apis.i2i.modelName ||= '';
@@ -134,7 +291,7 @@ function normalizeConfigShape(config) {
   cfg.apis.multimodal.queryModel ||= 'seedance-2-0-get';
   cfg.apis.multimodal.requestFormat ||= 'responses-json';
   cfg.apis.multimodal.authMode ||= 'bearer';
-  cfg.apis.multimodal.resolution ||= '720p';
+  cfg.apis.multimodal.resolution ||= '4K';
   cfg.apis.multimodal.ratio ||= '16:9';
   cfg.apis.multimodal.duration ||= 8;
   cfg.apis.multimodal.watermark ||= false;
@@ -175,7 +332,126 @@ function canvasSnapshot() {
     pan: state.pan,
     scale: state.scale,
     generationHistory: state.generationHistory,
+    assets: state.assets,
   });
+}
+
+function blankCanvasSnapshot() {
+  return JSON.stringify({
+    nodes: [],
+    links: [],
+    pan: { x: -49800, y: -49800 },
+    scale: 1,
+    generationHistory: [],
+    assets: [],
+  });
+}
+
+function loadProjectStore() {
+  try {
+    return JSON.parse(localStorage.getItem('ai_canvas_projects') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveProjectStore() {
+  localStorage.setItem('ai_canvas_projects', JSON.stringify({
+    currentProjectId: state.currentProjectId,
+    projects: state.projects,
+  }));
+}
+
+function loadPromptPresets() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('ai_canvas_prompt_presets') || '[]');
+    const hiddenDefaults = JSON.parse(localStorage.getItem('ai_canvas_hidden_default_presets') || '[]');
+    const merged = [...DEFAULT_PROMPT_PRESETS];
+    for (let i = merged.length - 1; i >= 0; i -= 1) {
+      if (hiddenDefaults.includes(merged[i].id)) merged.splice(i, 1);
+    }
+    for (const item of Array.isArray(saved) ? saved : []) {
+      if (!merged.some(base => base.id === item.id)) merged.push(item);
+    }
+    state.promptPresets = merged;
+  } catch {
+    state.promptPresets = [...DEFAULT_PROMPT_PRESETS];
+  }
+  state.selectedPromptPresetId ||= state.promptPresets[0]?.id || '';
+}
+
+function savePromptPresets() {
+  const custom = state.promptPresets.filter(item => !DEFAULT_PROMPT_PRESETS.some(base => base.id === item.id));
+  localStorage.setItem('ai_canvas_prompt_presets', JSON.stringify(custom));
+}
+
+function hideDefaultPromptPreset(id) {
+  const hidden = JSON.parse(localStorage.getItem('ai_canvas_hidden_default_presets') || '[]');
+  if (!hidden.includes(id)) hidden.push(id);
+  localStorage.setItem('ai_canvas_hidden_default_presets', JSON.stringify(hidden));
+}
+
+function projectCoverFromSnapshot(snapshot) {
+  try {
+    const data = JSON.parse(snapshot || '{}');
+    const image = (data.nodes || []).find(n => ['image', 't2i', 'i2i'].includes(n.type) && (n.resultUrl || n.url));
+    return image?.resultUrl || image?.url || '';
+  } catch {
+    return '';
+  }
+}
+
+function projectCountFromSnapshot(snapshot) {
+  try {
+    const data = JSON.parse(snapshot || '{}');
+    return (data.nodes || []).filter(n => n.type !== 'group').length;
+  } catch {
+    return 0;
+  }
+}
+
+function ensureProjectStoreFromCurrent(snapshot) {
+  const store = loadProjectStore();
+  if (Array.isArray(store.projects) && store.projects.length) {
+    state.projects = store.projects;
+    state.currentProjectId = store.currentProjectId || store.projects[0].id;
+    return true;
+  }
+  const first = {
+    id: uid('project'),
+    name: localStorage.getItem('ai_canvas_project_name') || '目前画布',
+    snapshot,
+    cover: projectCoverFromSnapshot(snapshot),
+    count: projectCountFromSnapshot(snapshot),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  state.projects = [first];
+  state.currentProjectId = first.id;
+  saveProjectStore();
+  return false;
+}
+
+function currentProject() {
+  return state.projects.find(project => project.id === state.currentProjectId) || state.projects[0] || null;
+}
+
+function updateProjectTitleBar() {
+  if (!els.projectTitleBar) return;
+  const project = currentProject();
+  const visible = !!project && !state.projectView && !state.materialView;
+  els.projectTitleBar.classList.toggle('hidden', !visible);
+  els.projectTitleBar.textContent = project?.name || '默认项目';
+}
+
+function persistCurrentProjectSnapshot(snapshot = canvasSnapshot()) {
+  const project = currentProject();
+  if (!project) return;
+  project.snapshot = snapshot;
+  project.cover = projectCoverFromSnapshot(snapshot);
+  project.count = projectCountFromSnapshot(snapshot);
+  project.updatedAt = Date.now();
+  saveProjectStore();
 }
 
 function restoreSnapshot(snapshot) {
@@ -185,6 +461,7 @@ function restoreSnapshot(snapshot) {
   state.pan = data.pan || state.pan;
   state.scale = data.scale || state.scale;
   state.generationHistory = data.generationHistory || [];
+  state.assets = data.assets || [];
   state.selectedId = null;
   state.selectedIds = [];
   state.selectedLinkId = null;
@@ -216,6 +493,7 @@ function saveCanvas() {
   state.lastSnapshot = snapshot;
   try {
     localStorage.setItem('ai-canvas-studio', snapshot);
+    persistCurrentProjectSnapshot(snapshot);
     setStatus('画布已保存');
   } catch (err) {
     setStatus('画布太大，已跳过本次自动保存');
@@ -223,6 +501,25 @@ function saveCanvas() {
 }
 
 function loadCanvas() {
+  const store = loadProjectStore();
+  if (Array.isArray(store.projects) && store.projects.length) {
+    state.projects = store.projects;
+    state.currentProjectId = store.currentProjectId || store.projects[0].id;
+    const project = currentProject();
+    if (project?.snapshot) {
+      const data = JSON.parse(project.snapshot);
+      state.nodes = (data.nodes || []).map(normalizeNode);
+      state.links = data.links || [];
+      state.pan = data.pan || state.pan;
+      state.scale = data.scale || state.scale;
+      state.generationHistory = data.generationHistory || [];
+      state.assets = data.assets || [];
+      state.lastSnapshot = canvasSnapshot();
+      render();
+      applyTransform();
+      return;
+    }
+  }
   const saved = localStorage.getItem('ai-canvas-studio');
   if (!saved) {
     addNode('prompt', 50000, 50000, {
@@ -233,6 +530,7 @@ function loadCanvas() {
       title: '常用参考图',
       text: '右键上传图片后，可作为图生图/图生视频参考。',
     });
+    ensureProjectStoreFromCurrent(canvasSnapshot());
     return;
   }
   try {
@@ -242,7 +540,9 @@ function loadCanvas() {
     state.pan = data.pan || state.pan;
     state.scale = data.scale || state.scale;
     state.generationHistory = data.generationHistory || [];
+    state.assets = data.assets || [];
     state.lastSnapshot = canvasSnapshot();
+    ensureProjectStoreFromCurrent(state.lastSnapshot);
     render();
     applyTransform();
   } catch {
@@ -291,6 +591,9 @@ function imageNodeHeight(node) {
 
 function normalizeNode(node) {
   if (!node) return node;
+  if (!Array.isArray(node.annotations)) node.annotations = [];
+  node.annotationMode = !!node.annotationMode;
+  node.annotationTool ||= 'brush';
   if (node.type === 'image' && node.imageRatio) {
     node.imageRatio = imageRatioForNode(node);
   }
@@ -305,7 +608,8 @@ function normalizeNode(node) {
     node.qualityMigrated = true;
   }
   if (['t2v', 'i2v'].includes(node.type)) {
-    node.model = 'doubao-seedance-2.0';
+    node.videoProvider ||= 'ark';
+    node.model ||= videoModelName();
   }
   if (['t2i', 'i2i'].includes(node.type) && (node.resultUrl || node.url) && node.taskStatus === 'succeeded') {
     node.taskStatus = '';
@@ -326,8 +630,8 @@ function addNode(type, x, y, data = {}) {
     type,
     x,
     y,
-    w: data.w || (['t2v', 'i2v'].includes(type) ? 300 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
-    h: data.h || 120,
+    w: data.w || (type === 'director' ? 720 : type === 'compare' ? 520 : ['t2v', 'i2v'].includes(type) ? 300 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
+    h: data.h || (type === 'director' ? 420 : type === 'compare' ? 300 : 120),
     title: data.title || typeNames[type] || '节点',
     text: data.text || '',
     url: data.url || '',
@@ -337,12 +641,17 @@ function addNode(type, x, y, data = {}) {
     ratio: data.ratio || '16:9',
     duration: data.duration || 5,
     model: data.model || defaultModelForType(type),
+    videoProvider: data.videoProvider || 'ark',
     generateAudio: data.generateAudio || false,
     watermark: data.watermark || false,
     aspect: data.aspect || '16:9',
     quality: data.quality || '2k',
-    resolution: data.resolution || '720p',
+    resolution: data.resolution || '4K',
     imageCount: data.imageCount || 1,
+    directors: data.directors || [],
+    annotations: Array.isArray(data.annotations) ? data.annotations : [],
+    annotationMode: data.annotationMode || false,
+    annotationTool: data.annotationTool || 'brush',
     preset: data.preset || '',
     panelW: data.panelW || 680,
     panelH: data.panelH || 180,
@@ -386,12 +695,15 @@ function render() {
   for (const node of renderNodes) {
     const div = document.createElement('div');
     const selectedClass = node.id === state.selectedId ? ' selected' : state.selectedIds.includes(node.id) ? ' multi-selected' : '';
-    div.className = `node ${node.type}${selectedClass}`;
+    const fullscreenClass = node.fullscreenPreview ? ' fullscreen-preview' : '';
+    div.className = `node ${node.type}${selectedClass}${fullscreenClass}`;
     div.style.left = `${node.x}px`;
     div.style.top = `${node.y}px`;
     div.style.width = `${node.w}px`;
     div.style.setProperty('--preview-ratio', previewRatioForNode(node));
-    if (isGeneratorType(node.type)) {
+    if (node.fullscreenPreview) {
+      div.style.height = `${node.h}px`;
+    } else if (isGeneratorType(node.type)) {
       node.h = previewHeightForNode(node);
       div.style.height = `${node.h}px`;
     } else if (shouldKeepImageRatio(node)) {
@@ -410,6 +722,9 @@ function render() {
   updateNodeInfo();
   renderAssets();
   renderHistory();
+  if (state.projectView) renderProjectBoard();
+  if (state.materialView) renderMaterialBoard();
+  updateProjectTitleBar();
 }
 
 function attachImageRatioCapture(div, node) {
@@ -447,13 +762,15 @@ function nodeHTML(node) {
   const title = escapeHtml(node.title || typeNames[node.type] || '节点');
   const head = `<div class="node-head"><span>${title}</span><button class="node-delete" data-delete-node title="删除">×</button></div>`;
   let body = '';
+  let floatingTools = '';
   if (node.type === 'group') {
     body = `<div class="group-label">${escapeHtml(node.members?.length || 0)} nodes</div>`;
   } else if (node.type === 'image' && node.url) {
+    floatingTools = imageUtilityToolbarHTML(node);
     body = `
-      ${imageUtilityToolbarHTML(node)}
-      <div class="image-node-preview">
+      <div class="image-node-preview" draggable="false" data-drag-asset-node="${node.id}">
         <img class="image-output" src="${node.url}" alt="" draggable="false" data-capture-ratio>
+        ${annotationOverlayHTML(node)}
       </div>
       <div class="pill">${escapeHtml(node.role || 'reference_image')}</div>
     `;
@@ -473,7 +790,12 @@ function nodeHTML(node) {
   } else if (node.type === 't2v' || node.type === 'i2v') {
     body = videoGeneratorHTML(node);
   } else if (node.type === 't2i' || node.type === 'i2i') {
+    floatingTools = imageUtilityToolbarHTML(node);
     body = imageGeneratorHTML(node);
+  } else if (node.type === 'compare') {
+    body = compareNodeHTML(node);
+  } else if (node.type === 'director') {
+    body = directorNodeHTML(node);
   } else if (node.type === 'text' || node.type === 'script') {
     const placeholder = node.type === 'script' ? '写脚本或请求草稿...' : '输入提示词或文本...';
     body = `<textarea data-field="text" placeholder="${placeholder}">${escapeHtml(node.text)}</textarea>`;
@@ -482,7 +804,61 @@ function nodeHTML(node) {
   }
   const input = canInput(node.type) ? '<div class="port in" data-port="in" title="输入"></div>' : '';
   const output = canOutput(node.type) ? '<div class="port out" data-port="out" title="输出"></div>' : '';
-  return `${input}${output}${head}<div class="node-body">${body}</div><div class="resize-handle" title="拖动调整大小"></div>`;
+  return `${input}${output}${head}${floatingTools}<div class="node-body">${body}</div><div class="resize-handle" title="拖动调整大小"></div>`;
+}
+
+function compareNodeHTML(node) {
+  const refs = referencesForNode(node.id).filter(ref => ref.kind === 'image').slice(0, 2);
+  const a = refs[0]?.url || '';
+  const b = refs[1]?.url || '';
+  const split = Math.max(3, Math.min(97, Number(node.compareSplit || 50)));
+  return `
+    <div class="compare-node">
+      <div class="compare-toolbar">
+        <span>连接两张图片，拖动画面中间的线进行对比</span>
+      </div>
+      <div class="compare-stage" style="--split:${split}%" data-compare-stage>
+        <div class="compare-layer compare-base">
+          ${a ? `<img class="compare-img" src="${escapeAttr(a)}" alt="">` : '<div class="compare-empty">图片 A</div>'}
+        </div>
+        <div class="compare-layer compare-top">
+          ${b ? `<img class="compare-img" src="${escapeAttr(b)}" alt="">` : '<div class="compare-empty">图片 B</div>'}
+        </div>
+        <div class="compare-divider" data-compare-divider><i></i></div>
+      </div>
+    </div>
+  `;
+}
+
+function directorNodeHTML(node) {
+  const actors = node.directors?.length ? node.directors : ['角色1'];
+  return `
+    <div class="director-node">
+      <div class="director-top">
+        <strong>Director 导演台</strong>
+        <button type="button" data-open-director-stage>打开3D导演台</button>
+        <button type="button" data-director-add>添加角色</button>
+        <button type="button" data-director-import>从图库导入</button>
+        <span>3D模式</span>
+      </div>
+      <div class="director-space">
+        <div class="director-horizon"></div>
+        <div class="director-grid"></div>
+        ${actors.map((actor, index) => `
+          <div class="director-actor" style="left:${22 + index * 16}%; top:${58 - (index % 3) * 8}%">
+            <i></i><span>${escapeHtml(actor)}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="director-bottom">
+        <span>FOV 39.6</span>
+        <span>镜头距离 8.0</span>
+        <span>网格</span>
+        <span>1080p</span>
+        <span>截屏</span>
+      </div>
+    </div>
+  `;
 }
 
 function imageGeneratorHTML(node) {
@@ -490,11 +866,10 @@ function imageGeneratorHTML(node) {
     ? `<img class="image-output" src="${node.resultUrl}" alt="" draggable="false">`
     : '<div class="image-output-empty">Image</div>';
   const download = node.resultUrl ? `<button class="node-download" data-download-image title="下载图片">下载</button>` : '';
-  const tools = node.resultUrl ? imageUtilityToolbarHTML(node) : '';
   const status = node.taskStatus && node.taskStatus !== 'succeeded'
     ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>`
     : '';
-  return `${tools}<div class="image-node-preview">${output}${download}${status}</div>`;
+  return `<div class="image-node-preview" draggable="false" data-drag-asset-node="${node.id}">${output}${download}${status}${annotationOverlayHTML(node)}</div>`;
 }
 
 function imageUtilityToolbarHTML(node) {
@@ -502,7 +877,7 @@ function imageUtilityToolbarHTML(node) {
     <div class="image-tool-strip">
       <button data-image-tool="characterSheet" title="生成人物三视图">人物三视图</button>
       <button data-image-tool="nineGrid" title="生成九宫格">九宫格</button>
-      <button data-image-tool="paintNote" title="生成绘画注释图">绘画注释</button>
+      <button data-image-tool="paintNote" title="打开绘画标注工具">绘画注释</button>
       <div class="image-tool-menu">
         <button type="button" title="宫格裁切">宫格裁切</button>
         <div class="image-tool-dropdown">
@@ -512,6 +887,30 @@ function imageUtilityToolbarHTML(node) {
         </div>
       </div>
     </div>
+  `;
+}
+
+function annotationOverlayHTML(node) {
+  const annotations = Array.isArray(node.annotations) ? node.annotations : [];
+  const shapes = annotations.map(item => {
+    if (item.type === 'text') {
+      return `<text x="${Number(item.x || 0)}" y="${Number(item.y || 0)}" fill="${escapeAttr(item.color || '#ccff00')}" font-size="4.5" font-weight="800">${escapeHtml(item.text || '')}</text>`;
+    }
+    const d = (item.points || []).map((point, index) => `${index ? 'L' : 'M'} ${Number(point.x || 0).toFixed(2)} ${Number(point.y || 0).toFixed(2)}`).join(' ');
+    return `<path d="${d}" fill="none" stroke="${escapeAttr(item.color || '#ccff00')}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>`;
+  }).join('');
+  return `
+    <svg class="annotation-layer ${node.annotationMode ? 'active' : ''}" viewBox="0 0 100 100" preserveAspectRatio="none" data-annotation-layer>
+      ${shapes}
+    </svg>
+    ${node.annotationMode ? `
+      <div class="annotation-toolbar">
+        <button type="button" class="${node.annotationTool !== 'text' ? 'active' : ''}" data-annotation-tool="brush">画笔</button>
+        <button type="button" class="${node.annotationTool === 'text' ? 'active' : ''}" data-annotation-tool="text">文字</button>
+        <button type="button" data-annotation-clear>清空</button>
+        <button type="button" data-annotation-done>完成</button>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -601,6 +1000,8 @@ function videoGeneratorHTML(node) {
         <button class="video-icon-button" data-video-toggle title="播放/暂停" aria-label="播放/暂停">▶</button>
         <span class="video-time" data-video-time>0:00 / 0:00</span>
         <input class="video-scrubber" data-video-scrubber type="range" min="0" max="1000" value="0" step="1" aria-label="视频进度">
+        <span class="video-rate">1×</span>
+        <span class="video-volume">▰</span>
         <button class="video-icon-button video-download-button" data-download-video title="下载视频" aria-label="下载视频">↓</button>
       </div>
       ${node.taskStatus === 'succeeded' ? '<div class="video-success-badge">生成成功</div>' : ''}`
@@ -616,6 +1017,12 @@ function videoGeneratorHTML(node) {
 
 function videoParamPanelHTML(node) {
   const durationOptions = Array.from({ length: 12 }, (_, index) => index + 4);
+  const arkModel = state.config?.apis?.ark?.modelName || 'doubao-seedance-2-0-260';
+  const multiModel = state.config?.apis?.multimodal?.submitModel || 'doubao-seedance-2-0-260128';
+  const modelOptions = [
+    { value: 'ark', label: `火山算力 · ${arkModel}` },
+    { value: 'multimodal', label: `多参模块 · ${multiModel}` },
+  ];
   const status = node.taskStatus ? `<div class="node-progress ${node.taskStatus}">
     <div>${escapeHtml(node.progressText || node.taskStatus)}</div>
     ${progressBarHTML(node, true)}
@@ -626,7 +1033,13 @@ function videoParamPanelHTML(node) {
       <label class="node-label">提示词</label>
       <textarea class="param-prompt" data-field="text" placeholder="描述参考图如何运动、镜头和动作...">${escapeHtml(node.text || '')}</textarea>
     ` : ''}
-    <div class="node-grid">
+    <div class="video-control-grid">
+      <div class="video-model-cell">
+        <label class="node-label">模型</label>
+        <select data-field="videoProvider">
+          ${modelOptions.map(item => `<option value="${item.value}" ${(node.videoProvider || 'ark') === item.value ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
+        </select>
+      </div>
       <div>
         <label class="node-label">比例</label>
         <select data-field="ratio">
@@ -640,9 +1053,9 @@ function videoParamPanelHTML(node) {
         </select>
       </div>
       <div>
-        <label class="node-label">Resolution</label>
+        <label class="node-label">分辨率</label>
         <select data-field="resolution">
-          ${['480p', '720p', '1080p', '2k'].map(v => `<option ${node.resolution === v ? 'selected' : ''}>${v}</option>`).join('')}
+          ${['4K'].map(v => `<option ${String(node.resolution || '4K').toUpperCase() === v.toUpperCase() ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -662,7 +1075,7 @@ function renderParamPanel() {
   panel.className = `param-panel ${node.type}`;
   panel.dataset.id = node.id;
   panel.style.left = `${node.x}px`;
-  panel.style.top = `${node.y + previewHeightForNode(node) + 12}px`;
+  panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
   panel.style.width = `${node.panelW || Math.max(520, node.w)}px`;
   panel.style.minHeight = `${node.panelH || 180}px`;
   panel.innerHTML = `
@@ -754,26 +1167,24 @@ function referenceMentionMenuHTML(node) {
 
 function renderAssets() {
   if (!els.assetList) return;
-  const assets = state.nodes
-    .filter(n => ['image', 'video', 'audio'].includes(n.type) && n.url)
-    .map(n => ({ ...n, category: assetCategory(n) }))
-    .filter(n => state.assetFilter === 'all' || n.category === state.assetFilter);
+  const assets = (state.assets || [])
+    .filter(asset => state.assetFilter === 'all' || asset.category === state.assetFilter);
   els.assetList.innerHTML = assets.length
-    ? assets.map(n => assetCardHTML(n)).join('')
-    : '<div class="asset-item">暂无资产，右键上传素材</div>';
+    ? assets.map(assetCardHTML).join('')
+    : '<div class="asset-item">暂无资产，把画布图片右键加入资产，或拖到上方分类</div>';
 }
 
-function assetCardHTML(n) {
-  const media = n.type === 'image'
-    ? `<img src="${n.url}" alt="">`
-    : n.type === 'video'
-      ? `<video src="${n.url}" muted></video>`
+function assetCardHTML(asset) {
+  const media = asset.type === 'image'
+    ? `<img src="${escapeAttr(asset.url)}" alt="">`
+    : asset.type === 'video'
+      ? `<video src="${escapeAttr(asset.url)}" muted></video>`
       : '<div class="asset-audio">音频</div>';
   return `
-    <div class="asset-card" data-asset="${n.id}">
+    <div class="asset-card" data-asset="${asset.id}">
       <div class="asset-thumb">${media}</div>
-      <div class="asset-name">${escapeHtml(n.title)}</div>
-      <div class="asset-kind">${assetCategoryName(n.category)}</div>
+      <div class="asset-name">${escapeHtml(asset.name || asset.title || '未命名资产')}</div>
+      <div class="asset-kind">${assetCategoryName(asset.category)}</div>
     </div>
   `;
 }
@@ -791,12 +1202,556 @@ function assetCategoryName(category) {
   return { person: '人物', scene: '场景', object: '物品', style: '风格', other: '其他' }[category] || '其他';
 }
 
+function showProjectBoard() {
+  persistCurrentProjectSnapshot();
+  state.projectView = true;
+  state.materialView = false;
+  els.materialBoard?.classList.add('hidden');
+  els.projectBoard?.classList.remove('hidden');
+  updateProjectTitleBar();
+  renderProjectBoard();
+}
+
+function hideProjectBoard() {
+  state.projectView = false;
+  els.projectBoard?.classList.add('hidden');
+  updateProjectTitleBar();
+}
+
+function showMaterialBoard(kind = 'materials') {
+  persistCurrentProjectSnapshot();
+  state.projectView = false;
+  state.materialView = kind;
+  els.projectBoard?.classList.add('hidden');
+  els.materialBoard?.classList.remove('hidden');
+  updateProjectTitleBar();
+  renderMaterialBoard();
+}
+
+function hideMaterialBoard() {
+  state.materialView = false;
+  els.materialBoard?.classList.add('hidden');
+  updateProjectTitleBar();
+}
+
+function markTopSection(mode = 't2i') {
+  document.querySelectorAll('.segmented button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+}
+
+function activateCanvasMode(mode = state.mode || 'i2i') {
+  const nextMode = mode === 't2i' ? 'i2i' : mode;
+  state.mode = nextMode;
+  state.projectView = false;
+  state.materialView = false;
+  els.projectBoard?.classList.add('hidden');
+  els.materialBoard?.classList.add('hidden');
+  markTopSection('t2i');
+  fillModelSelect();
+}
+
+function renderMaterialBoard() {
+  if (!els.materialBoard || !state.materialView) return;
+  if (state.materialView === 'prompts') {
+    renderPromptPresetBoard();
+    return;
+  }
+  if (state.materialView === 'clone') {
+    renderCloneBoard();
+    return;
+  }
+  renderLocalMaterialBoard();
+}
+
+function materialAssetsForFilter() {
+  const type = state.materialFilter || 'all';
+  return (state.assets || []).filter(asset => {
+    if (type === 'all') return true;
+    if (type === 'image') return asset.type === 'image';
+    if (type === 'video') return asset.type === 'video';
+    if (type === 'audio') return asset.type === 'audio';
+    return asset.category === type;
+  });
+}
+
+function renderLocalMaterialBoard() {
+  const tabs = [
+    ['all', '全部'],
+    ['image', '图片'],
+    ['video', '视频'],
+    ['audio', '音频'],
+  ];
+  const assets = materialAssetsForFilter();
+  els.materialBoard.innerHTML = `
+    <div class="workspace-board material-drop-zone">
+      <div class="workspace-head">
+        <div>
+          <h2>本地素材 <span>(${state.assets.length})</span></h2>
+        </div>
+        <div class="workspace-actions">
+          <button type="button" data-material-upload="image">上传图片</button>
+          <button type="button" data-material-upload="video">上传视频</button>
+          <button type="button" data-material-upload="audio">上传音频</button>
+        </div>
+      </div>
+      <div class="preset-tabs">
+        ${tabs.map(([id, label]) => `<button type="button" class="${state.materialFilter === id ? 'active' : ''}" data-material-filter="${id}">${label}</button>`).join('')}
+      </div>
+      <div class="material-grid">
+        ${assets.length ? assets.map(asset => `
+          <div class="material-card" data-asset="${asset.id}" draggable="true">
+            <div class="material-thumb">${assetMediaHTML(asset)}</div>
+            <button type="button" class="material-rename" data-material-rename="${asset.id}" title="改名">✎</button>
+            <button type="button" class="material-delete" data-material-delete="${asset.id}" title="删除">×</button>
+            <strong>${escapeHtml(asset.name || asset.title || '未命名素材')}</strong>
+            <span>${asset.type === 'image' ? '图片' : asset.type === 'video' ? '视频' : '音频'} · ${assetCategoryName(asset.category)}</span>
+          </div>
+        `).join('') : '<div class="empty-board">暂无素材，点击上传，或把本地文件/文件夹拖进来。</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function assetsCountForMaterial(type) {
+  if (type === 'all') return state.assets.length;
+  return (state.assets || []).filter(asset => type === asset.type || type === asset.category).length;
+}
+
+function assetMediaHTML(asset) {
+  if (asset.type === 'image') return `<img src="${escapeAttr(asset.url)}" alt="">`;
+  if (asset.type === 'video') return `<video src="${escapeAttr(asset.url)}" muted preload="metadata"></video>`;
+  return '<div class="asset-audio big">音频</div>';
+}
+
+function presetCategoryCount(category) {
+  if (category === 'all') return state.promptPresets.length;
+  return state.promptPresets.filter(item => item.category === category).length;
+}
+
+function filteredPromptPresets() {
+  return state.promptPresets.filter(item => state.promptPresetFilter === 'all' || item.category === state.promptPresetFilter);
+}
+
+function selectedPromptPreset() {
+  const list = filteredPromptPresets();
+  let preset = state.promptPresets.find(item => item.id === state.selectedPromptPresetId);
+  if (!preset || !list.some(item => item.id === preset.id)) preset = list[0] || state.promptPresets[0] || null;
+  if (preset) state.selectedPromptPresetId = preset.id;
+  return preset;
+}
+
+function renderPromptPresetBoard() {
+  if (!state.promptPresets.length) loadPromptPresets();
+  const list = filteredPromptPresets();
+  const selected = selectedPromptPreset();
+  els.materialBoard.innerHTML = `
+    <div class="workspace-board prompt-board">
+      <div class="preset-tabs">
+        ${PROMPT_PRESET_CATEGORIES.map(([id, label]) => `<button type="button" class="${state.promptPresetFilter === id ? 'active' : ''}" data-preset-filter="${id}">${label}</button>`).join('')}
+        <button type="button" class="manage-btn" data-preset-new>+ 新增</button>
+      </div>
+      <div class="prompt-layout">
+        <aside class="prompt-list">
+          <div class="prompt-list-actions">
+            <button type="button" data-preset-new>新增</button>
+          </div>
+          ${list.length ? list.map(item => `
+            <button type="button" class="prompt-card ${item.id === selected?.id ? 'active' : ''}" data-preset-id="${item.id}">
+              <strong>${escapeHtml(item.title || '未命名模板')}</strong>
+              <span data-preset-card-delete="${item.id}">删除</span>
+              <p>${escapeHtml(item.desc || '')}</p>
+            </button>
+          `).join('') : '<div class="empty-board">当前分类没有模板</div>'}
+        </aside>
+        <section class="prompt-detail">
+          ${selected ? promptPresetDetailHTML(selected) : '<div class="empty-board">请选择一个模板</div>'}
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function categoryNameForPreset(category) {
+  return PROMPT_PRESET_CATEGORIES.find(item => item[0] === category)?.[1] || '我的';
+}
+
+function promptPresetDetailHTML(item) {
+  return `
+    <div class="prompt-detail-head" data-preset-editor="${item.id}">
+      <div>
+        <input class="preset-title-input" data-preset-field="title" value="${escapeAttr(item.title || '')}" placeholder="提示词名字">
+      </div>
+      <div class="workspace-actions">
+        <button type="button" data-preset-insert="${item.id}">插入到画布</button>
+        <button type="button" data-preset-copy="${item.id}">复制提示词</button>
+        <button type="button" data-preset-save="${item.id}">保存</button>
+      </div>
+    </div>
+    <h3>正向提示词</h3>
+    <textarea class="preset-textarea" data-preset-field="positive" placeholder="填写正向提示词...">${escapeHtml(item.positive || '')}</textarea>
+    <h3>负向提示词</h3>
+    <textarea class="preset-textarea" data-preset-field="negative" placeholder="填写负向提示词...">${escapeHtml(item.negative || '')}</textarea>
+  `;
+}
+
+function renderCloneBoard() {
+  els.materialBoard.innerHTML = `
+    <div class="workspace-board">
+      <div class="workspace-head">
+        <div>
+          <h2>爆款克隆</h2>
+          <p>这里后续放视频链接、爆款结构拆解、镜头复刻和提示词生成。该页面不启用画布功能。</p>
+        </div>
+      </div>
+      <div class="empty-board large">爆款克隆工作台已预留，后续可接入链接解析、脚本拆解和一键生成节点。</div>
+    </div>
+  `;
+}
+
+function upsertPromptPreset(existing = null) {
+  const item = {
+    id: existing?.id || uid('preset'),
+    title: existing?.title || '新提示词模板',
+    category: existing?.category || 'mine',
+    tag: existing?.tag || '自定义',
+    desc: existing?.desc || '自定义提示词模板',
+    positive: existing?.positive || '',
+    negative: existing?.negative || '',
+    editing: true,
+    createdAt: existing?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  const index = state.promptPresets.findIndex(preset => preset.id === item.id);
+  if (index >= 0) state.promptPresets.splice(index, 1, item);
+  else state.promptPresets.unshift(item);
+  state.selectedPromptPresetId = item.id;
+  state.promptPresetFilter = 'mine';
+  savePromptPresets();
+  renderMaterialBoard();
+  setStatus(`已新增可编辑模板：${item.title}`);
+}
+
+function deletePromptPreset(id) {
+  const item = state.promptPresets.find(preset => preset.id === id);
+  if (!item || !confirm(`删除模板「${item.title}」？`)) return;
+  if (DEFAULT_PROMPT_PRESETS.some(base => base.id === id)) hideDefaultPromptPreset(id);
+  state.promptPresets = state.promptPresets.filter(preset => preset.id !== id);
+  state.selectedPromptPresetId = filteredPromptPresets()[0]?.id || state.promptPresets[0]?.id || '';
+  savePromptPresets();
+  renderMaterialBoard();
+  setStatus('提示词模板已删除');
+}
+
+function savePromptPresetFromEditor(id) {
+  const item = state.promptPresets.find(preset => preset.id === id);
+  if (!item) return;
+  const editor = [...els.materialBoard.querySelectorAll('[data-preset-editor]')]
+    .find(el => el.dataset.presetEditor === id);
+  if (!editor) return;
+  const titleInput = editor.querySelector('[data-preset-field="title"]');
+  if (!titleInput) return;
+  const title = titleInput.value?.trim();
+  const positive = editor.parentElement.querySelector('[data-preset-field="positive"]')?.value || '';
+  const negative = editor.parentElement.querySelector('[data-preset-field="negative"]')?.value || '';
+  if (title) item.title = title;
+  item.positive = positive;
+  item.negative = negative;
+  item.editing = false;
+  item.updatedAt = Date.now();
+  savePromptPresets();
+  renderMaterialBoard();
+  setStatus(`模板已保存：${item.title}`);
+}
+
+async function copyPromptPreset(id) {
+  const item = state.promptPresets.find(preset => preset.id === id);
+  if (!item) return;
+  const text = [item.positive, item.negative ? `\n负向提示词：\n${item.negative}` : ''].join('').trim();
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus('提示词已复制');
+  } catch {
+    setStatus('浏览器不允许自动复制，请手动选中文本复制');
+  }
+}
+
+function insertPromptPresetToCanvas(id) {
+  const item = state.promptPresets.find(preset => preset.id === id);
+  if (!item) return;
+  hideMaterialBoard();
+  activateCanvasMode('i2i');
+  const p = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+  addNode('text', p.x, p.y, {
+    title: item.title,
+    text: item.positive,
+    w: 360,
+    h: 220,
+  });
+  setStatus(`已插入提示词：${item.title}`);
+}
+
+function saveCurrentPromptAsPreset() {
+  const selectedText = selectedNode()?.text || els.prompt?.value || '';
+  upsertPromptPreset({
+    id: uid('preset'),
+    title: '当前提示词',
+    category: 'mine',
+    tag: '自定义',
+    desc: '从当前输入保存',
+    positive: selectedText,
+    negative: '',
+  });
+}
+
+function renderProjectBoard() {
+  if (!els.projectBoard) return;
+  const cards = (state.projects || []).map(project => `
+    <button type="button" class="project-card ${project.id === state.currentProjectId ? 'active' : ''}" data-open-project="${project.id}">
+      <div class="project-cover">
+        ${project.cover ? `<img src="${escapeAttr(project.cover)}" alt="">` : '<span>空画布</span>'}
+        <em>节点数：${project.count || 0}</em>
+      </div>
+      <div class="project-name">${escapeHtml(project.name)}</div>
+      <div class="project-meta">${project.id === state.currentProjectId ? '正在编辑' : '点击进入'}</div>
+      <span class="project-more" data-project-menu="${project.id}" title="项目操作">☰</span>
+    </button>
+  `).join('');
+  els.projectBoard.innerHTML = `
+    <div class="project-board-head">
+      <div>
+        <h2>我的项目 <span>(${state.projects.length})</span></h2>
+        <p>点击项目进入对应画布，点 + 创建新的空白画布。</p>
+      </div>
+      <button type="button" data-new-project>+ 新建项目</button>
+    </div>
+    <div class="project-grid">
+      <button type="button" class="project-card new-project" data-new-project>
+        <strong>+</strong>
+        <span>新建项目</span>
+      </button>
+      ${cards}
+    </div>
+  `;
+}
+
+function showProjectMenu(projectId, x, y) {
+  const existing = document.querySelector('.project-action-menu');
+  existing?.remove();
+  const menu = document.createElement('div');
+  menu.className = 'project-action-menu';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.innerHTML = `
+    <button data-project-action="detail" data-project-id="${projectId}">ⓘ 查看详情</button>
+    <button data-project-action="rename" data-project-id="${projectId}">✎ 重命名</button>
+    <button data-project-action="move" data-project-id="${projectId}">▣ 移动至</button>
+    <button data-project-action="delete" data-project-id="${projectId}">⌫ 删除</button>
+  `;
+  document.body.appendChild(menu);
+}
+
+function hideProjectMenu() {
+  document.querySelector('.project-action-menu')?.remove();
+}
+
+function showMaterialContextMenu(assetId, x, y) {
+  document.querySelector('.material-action-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.className = 'material-action-menu';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.innerHTML = `<button type="button" data-material-action="import" data-material-id="${escapeAttr(assetId)}">导入画布</button>`;
+  document.body.appendChild(menu);
+}
+
+function hideMaterialContextMenu() {
+  document.querySelector('.material-action-menu')?.remove();
+}
+
+function renameProject(projectId) {
+  const project = state.projects.find(item => item.id === projectId);
+  if (!project) return;
+  const name = prompt('请输入项目名称', project.name || '未命名项目');
+  if (!name?.trim()) return;
+  project.name = name.trim();
+  project.updatedAt = Date.now();
+  saveProjectStore();
+  renderProjectBoard();
+  setStatus(`项目已重命名：${project.name}`);
+}
+
+function deleteProject(projectId) {
+  if (state.projects.length <= 1) {
+    setStatus('至少保留一个项目');
+    return;
+  }
+  const project = state.projects.find(item => item.id === projectId);
+  if (!project || !confirm(`确认删除项目「${project.name}」？`)) return;
+  state.projects = state.projects.filter(item => item.id !== projectId);
+  if (state.currentProjectId === projectId) {
+    state.currentProjectId = state.projects[0].id;
+    restoreSnapshot(state.projects[0].snapshot || blankCanvasSnapshot());
+  }
+  saveProjectStore();
+  renderProjectBoard();
+  setStatus('项目已删除');
+}
+
+function projectDetail(projectId) {
+  const project = state.projects.find(item => item.id === projectId);
+  if (!project) return;
+  setStatus(`${project.name}：${project.count || 0} 个节点`);
+}
+
+function openProject(projectId) {
+  persistCurrentProjectSnapshot();
+  const project = state.projects.find(item => item.id === projectId);
+  if (!project) return;
+  state.currentProjectId = project.id;
+  hideProjectBoard();
+  activateCanvasMode(state.mode);
+  state.restoring = true;
+  restoreSnapshot(project.snapshot || blankCanvasSnapshot());
+  state.restoring = false;
+  saveProjectStore();
+  setStatus(`已进入项目：${project.name}`);
+}
+
+function createNewProject() {
+  persistCurrentProjectSnapshot();
+  const index = state.projects.length + 1;
+  const project = {
+    id: uid('project'),
+    name: `新项目 ${index}`,
+    snapshot: blankCanvasSnapshot(),
+    cover: '',
+    count: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  state.projects.unshift(project);
+  state.currentProjectId = project.id;
+  hideProjectBoard();
+  activateCanvasMode('i2i');
+  state.restoring = true;
+  restoreSnapshot(project.snapshot);
+  state.restoring = false;
+  saveProjectStore();
+  setStatus(`已进入空白画布：${project.name}`);
+}
+
+function nodeAssetPayload(node, overrides = {}) {
+  const url = node?.resultUrl || node?.url || '';
+  if (!node || !url) return null;
+  const type = ['video', 'audio'].includes(node.type) ? node.type : 'image';
+  return {
+    id: uid('asset'),
+    sourceNodeId: node.id,
+    type,
+    url,
+    mime: node.mime || (type === 'image' ? 'image/png' : type === 'video' ? 'video/mp4' : ''),
+    name: overrides.name || node.title || '我的资产',
+    title: overrides.name || node.title || '我的资产',
+    category: overrides.category || 'person',
+    role: node.role || roleForType(type),
+    imageRatio: node.imageRatio || node.naturalRatio || 0,
+    naturalWidth: node.naturalWidth || 0,
+    naturalHeight: node.naturalHeight || 0,
+    createdAt: Date.now(),
+  };
+}
+
+function addAssetFromNode(nodeId, options = {}) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  const asset = nodeAssetPayload(node, options);
+  if (!asset) {
+    setStatus('这个节点没有可加入资产的图片');
+    return null;
+  }
+  state.assets = [
+    asset,
+    ...(state.assets || []).filter(item => item.url !== asset.url),
+  ].slice(0, 200);
+  renderAssets();
+  saveCanvas();
+  setStatus(`已加入资产：${asset.name}`);
+  return asset;
+}
+
+function addAssetNodeToCanvas(asset, point = screenToWorld(window.innerWidth / 2, window.innerHeight / 2)) {
+  if (!asset) return null;
+  const node = addNode(asset.type, point.x, point.y, {
+    title: asset.name || asset.title,
+    url: asset.url,
+    mime: asset.mime,
+    kind: asset.kind,
+    role: asset.role,
+    imageRatio: asset.imageRatio,
+    naturalWidth: asset.naturalWidth,
+    naturalHeight: asset.naturalHeight,
+  });
+  setStatus(`已添加到画布：${asset.name || asset.title || '素材'}`);
+  return node;
+}
+
+function openAssetDialog(nodeId, category = '') {
+  const node = state.nodes.find(n => n.id === nodeId);
+  const url = node?.resultUrl || node?.url || '';
+  if (!node || !url || !els.assetDialog) return;
+  state.assetDraftNodeId = nodeId;
+  els.assetName.value = node.title || '我的资产';
+  els.assetCategory.value = category || assetCategory(node);
+  els.assetDialogPreview.innerHTML = `<img src="${escapeAttr(url)}" alt="">`;
+  els.assetDialog.classList.remove('hidden');
+}
+
+function closeAssetDialog() {
+  state.assetDraftNodeId = null;
+  els.assetDialog?.classList.add('hidden');
+}
+
+function assetNodeIdFromDrop(event) {
+  const direct = event.dataTransfer.getData('application/x-ai-canvas-asset-node');
+  if (direct) return direct;
+  const text = event.dataTransfer.getData('text/plain') || '';
+  try {
+    const data = JSON.parse(text);
+    if (data?.type === 'asset-node' && data.nodeId) return data.nodeId;
+  } catch {
+    // Plain text drops are ignored unless they contain our JSON payload.
+  }
+  return '';
+}
+
 function renderHistory() {
   if (!els.historyList) return;
   const items = state.generationHistory.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 200);
   els.historyList.innerHTML = items.length
-    ? items.map(item => `<div class="history-item" data-history-result="${item.id}">${escapeHtml(item.title)}<br>${escapeHtml(item.kind)}${item.status ? ` 路 ${escapeHtml(item.status)}` : ''}</div>`).join('')
-    : '<div class="history-item">鏆傛棤生成鍘嗗彶</div>';
+    ? items.map(historyItemHTML).join('')
+    : '<div class="history-item empty">暂无生成历史</div>';
+}
+
+function historyItemHTML(item) {
+  const url = item.url || '';
+  const isVideo = String(item.mime || '').startsWith('video/');
+  const isImage = String(item.mime || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  const thumb = url
+    ? `<div class="history-thumb">
+        ${isVideo
+          ? `<video src="${escapeAttr(url)}" muted preload="metadata"></video><span class="history-media-badge">视频</span>`
+          : isImage
+            ? `<img src="${escapeAttr(url)}" alt="" loading="lazy">`
+            : '<span class="history-file">文件</span>'}
+      </div>`
+    : '<div class="history-thumb empty-thumb">无预览</div>';
+  return `<div class="history-item" data-history-result="${item.id}">
+    ${thumb}
+    <div class="history-meta">
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${escapeHtml(item.kind)}${item.status ? ` · ${escapeHtml(item.status)}` : ''}</span>
+    </div>
+  </div>`;
 }
 
 function addGenerationHistory(item) {
@@ -814,19 +1769,60 @@ function addGenerationHistory(item) {
 }
 
 function canOutput(type) {
-  return ['text', 'prompt', 'image', 'video', 'audio', 'script', 'result', 'world', 't2i', 'i2i', 't2v', 'i2v'].includes(type);
+  return ['text', 'prompt', 'image', 'video', 'audio', 'script', 'result', 'world', 't2i', 'i2i', 't2v', 'i2v', 'director', 'compare'].includes(type);
 }
 
 function canInput(type) {
-  return ['image', 'video', 'audio', 't2i', 'i2i', 'i2v', 't2v', 'script', 'result', 'world'].includes(type);
+  return ['image', 'video', 'audio', 't2i', 'i2i', 'i2v', 't2v', 'script', 'result', 'world', 'director', 'compare'].includes(type);
 }
 
 function eventNodeElement(target) {
-  return target.closest('.node, .param-panel');
+  return target?.closest?.('.node, .param-panel') || null;
+}
+
+function linkHandleFromPointer(event) {
+  const directPort = event.target?.closest?.('.port');
+  if (directPort) {
+    return {
+      nodeEl: directPort.closest('.node'),
+      portKind: directPort.dataset.port,
+    };
+  }
+  for (const el of document.elementsFromPoint(event.clientX, event.clientY)) {
+    const port = el.closest?.('.port');
+    if (port) {
+      return {
+        nodeEl: port.closest('.node'),
+        portKind: port.dataset.port,
+      };
+    }
+  }
+  if (event.target.closest('textarea,input,select,button,audio,video,.resize-handle')) return null;
+  const nodeEl = event.target.closest('.node');
+  if (!nodeEl) return null;
+  const rect = nodeEl.getBoundingClientRect();
+  const hotZone = 28;
+  if (event.clientX >= rect.right - hotZone && event.clientX <= rect.right + hotZone) {
+    return { nodeEl, portKind: 'out' };
+  }
+  if (event.clientX >= rect.left - hotZone && event.clientX <= rect.left + hotZone) {
+    return { nodeEl, portKind: 'in' };
+  }
+  return null;
 }
 
 function renderLinks() {
-  els.links.innerHTML = '';
+  els.links.innerHTML = `
+    <defs>
+      <filter id="linkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="3" result="blur"></feGaussianBlur>
+        <feMerge>
+          <feMergeNode in="blur"></feMergeNode>
+          <feMergeNode in="SourceGraphic"></feMergeNode>
+        </feMerge>
+      </filter>
+    </defs>
+  `;
   for (const link of state.links) {
     if (!link.id) link.id = uid('link');
     const a = state.nodes.find(n => n.id === link.from);
@@ -834,31 +1830,39 @@ function renderLinks() {
     if (!a || !b) continue;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     const x1 = a.x + a.w;
-    const y1 = a.y + 48;
+    const y1 = a.y + 53;
     const x2 = b.x;
-    const y2 = b.y + 48;
+    const y2 = b.y + 53;
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.35);
     path.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'rgba(128,150,178,.55)');
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('class', `link-path${link.id === state.selectedLinkId ? ' selected' : ''}`);
+    path.setAttribute('stroke-width', String(state.grid.linkWidth || 3));
+    const videoLinkClass = ['t2v', 'i2v'].includes(b.type) ? ' video-link' : '';
+    path.setAttribute('class', `link-path${videoLinkClass}${link.id === state.selectedLinkId ? ' selected' : ''}`);
     path.dataset.id = link.id;
     els.links.appendChild(path);
   }
   if (state.linking) {
     const sourceIds = state.linking.sourceIds || [state.linking.sourceId];
-    for (const sourceId of sourceIds) {
-      const source = state.nodes.find(n => n.id === sourceId);
-      if (!source) continue;
-      drawTempLink({ x: source.x + source.w, y: source.y + 53 }, state.linking.to);
+    if (state.linking.port === 'in') {
+      const target = state.nodes.find(n => n.id === state.linking.targetId);
+      drawTempLink(state.linking.to, state.linking.from, ['t2v', 'i2v'].includes(target?.type));
+    } else {
+      for (const sourceId of sourceIds) {
+        const source = state.nodes.find(n => n.id === sourceId);
+        if (!source) continue;
+        const from = sourceId === state.linking.sourceId && state.linking.from
+          ? state.linking.from
+          : { x: source.x + source.w, y: source.y + 53 };
+        drawTempLink(from, state.linking.to, ['t2v', 'i2v'].includes(source.type));
+      }
     }
   }
   if (!state.linking && state.pendingLink?.point && pendingFromIds().length) {
     for (const fromId of pendingFromIds()) {
       const source = state.nodes.find(n => n.id === fromId);
       if (!source) continue;
-      drawTempLink({ x: source.x + source.w, y: source.y + 53 }, state.pendingLink.point);
+      drawTempLink({ x: source.x + source.w, y: source.y + 53 }, state.pendingLink.point, ['t2v', 'i2v'].includes(source.type));
     }
   }
 }
@@ -873,13 +1877,13 @@ function scheduleRenderLinks() {
   });
 }
 
-function drawTempLink(from, to) {
+function drawTempLink(from, to, video = false) {
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   const dx = Math.max(80, Math.abs(to.x - from.x) * 0.35);
   path.setAttribute('d', `M ${from.x} ${from.y} C ${from.x + dx} ${from.y}, ${to.x - dx} ${to.y}, ${to.x} ${to.y}`);
   path.setAttribute('fill', 'none');
-  path.setAttribute('stroke-width', '3');
-  path.setAttribute('class', 'temp-link');
+  path.setAttribute('stroke-width', String(Math.max(2, Number(state.grid.linkWidth || 3))));
+  path.setAttribute('class', `link-path temp-link${video ? ' video-link' : ''}`);
   els.links.appendChild(path);
 }
 
@@ -888,9 +1892,9 @@ function linkNearPoint(link, point, threshold = 10) {
   const b = state.nodes.find(n => n.id === link.to);
   if (!a || !b) return false;
   const x1 = a.x + a.w;
-  const y1 = a.y + 48;
+  const y1 = a.y + 53;
   const x2 = b.x;
-  const y2 = b.y + 48;
+  const y2 = b.y + 53;
   const dx = Math.max(80, Math.abs(x2 - x1) * 0.35);
   let prev = { x: x1, y: y1 };
   for (let i = 1; i <= 36; i++) {
@@ -981,8 +1985,16 @@ function escapeHtml(text) {
   }[ch]));
 }
 
+function escapeAttr(text) {
+  return escapeHtml(text);
+}
+
 function hideMenu() {
   els.menu.classList.add('hidden');
+}
+
+function isAssetCandidateNode(node) {
+  return !!(node && ['image', 't2i', 'i2i'].includes(node.type) && (node.url || node.resultUrl));
 }
 
 function showMenu(x, y, options = {}) {
@@ -993,6 +2005,10 @@ function showMenu(x, y, options = {}) {
   if (els.menuTitle) els.menuTitle.textContent = hasMultiSelection ? '选区操作' : options.keepPendingLink ? '连接到' : '添加节点';
   els.menu.querySelectorAll('.selected-menu').forEach(el => {
     el.classList.toggle('hidden', !hasMultiSelection);
+  });
+  const menuNode = state.nodes.find(n => n.id === state.menuNodeId);
+  els.menu.querySelectorAll('.image-node-menu').forEach(el => {
+    el.classList.toggle('hidden', !isAssetCandidateNode(menuNode));
   });
   els.menu.classList.remove('hidden');
   renderLinks();
@@ -1048,7 +2064,77 @@ async function uploadFiles(files, point) {
   }
   renderAssets();
   renderHistory();
+  if (state.projectView) renderProjectBoard();
   setStatus('上传完成');
+}
+
+async function uploadFilesToAssets(files, category = 'object') {
+  if (!files.length) return;
+  const sourceFiles = [...files];
+  const metas = await Promise.all(sourceFiles.map(file => imageMetaForFile(file)));
+  const form = new FormData();
+  for (const file of sourceFiles) form.append('files', file);
+  setStatus('素材上传中...');
+  const res = await fetch('/api/upload', { method: 'POST', body: form });
+  const data = await readJsonResponse(res);
+  const uploaded = (data.files || []).map((file, index) => ({
+    id: uid('asset'),
+    sourceNodeId: '',
+    type: file.kind === 'file' ? 'audio' : file.kind,
+    url: file.url,
+    mime: file.mime || '',
+    name: file.name,
+    title: file.name,
+    category: category === 'auto' ? assetCategory({ title: file.name, type: file.kind }) : category,
+    role: roleForType(file.kind),
+    ...(metas[index] || {}),
+    createdAt: Date.now(),
+  }));
+  state.assets = [...uploaded, ...(state.assets || [])].slice(0, 300);
+  renderAssets();
+  if (state.materialView) renderMaterialBoard();
+  saveCanvas();
+  setStatus(`已上传 ${uploaded.length} 个素材`);
+}
+
+function readEntryFile(entry) {
+  return new Promise(resolve => entry.file(file => resolve(file), () => resolve(null)));
+}
+
+function readDirectoryEntries(reader) {
+  return new Promise(resolve => reader.readEntries(entries => resolve(entries), () => resolve([])));
+}
+
+async function filesFromEntry(entry) {
+  if (!entry) return [];
+  if (entry.isFile) {
+    const file = await readEntryFile(entry);
+    return file ? [file] : [];
+  }
+  if (!entry.isDirectory) return [];
+  const reader = entry.createReader();
+  const result = [];
+  while (true) {
+    const entries = await readDirectoryEntries(reader);
+    if (!entries.length) break;
+    for (const child of entries) result.push(...await filesFromEntry(child));
+  }
+  return result;
+}
+
+async function filesFromDataTransfer(dataTransfer) {
+  const items = [...(dataTransfer?.items || [])];
+  if (!items.length) return [...(dataTransfer?.files || [])];
+  const files = [];
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.();
+    if (entry) files.push(...await filesFromEntry(entry));
+    else {
+      const file = item.getAsFile?.();
+      if (file) files.push(file);
+    }
+  }
+  return files.filter(file => /^(image|video|audio)\//.test(file.type || ''));
 }
 
 function connectPendingTo(targetId) {
@@ -1114,11 +2200,99 @@ function imageModelForUtility(source) {
 }
 
 function sourceAndInheritedImageIds(source) {
-  const ids = [source.id];
+  const ids = source?.url || source?.resultUrl ? [source.id] : [];
   for (const ref of referencesForNode(source.id).filter(r => r.kind === 'image')) {
     if (ref.nodeId && !ids.includes(ref.nodeId)) ids.push(ref.nodeId);
   }
   return ids;
+}
+
+function imageUrlForNode(node) {
+  if (!node) return '';
+  if (node.resultUrl || node.url) return node.resultUrl || node.url;
+  return referencesForNode(node.id).find(ref => ref.kind === 'image')?.url || '';
+}
+
+function loadImageForCanvas(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('图片加载失败，无法裁切'));
+    img.src = url;
+  });
+}
+
+async function cropImageGrid(nodeId, grid = 9) {
+  const source = state.nodes.find(n => n.id === nodeId);
+  const url = imageUrlForNode(source);
+  if (!source || !url) {
+    setStatus('请先选择一张图片再裁切');
+    return;
+  }
+  const side = Math.sqrt(Number(grid || 9));
+  if (!Number.isInteger(side)) return;
+  try {
+    setStatus(`正在裁切 ${grid} 宫格...`);
+    const img = await loadImageForCanvas(url);
+    const cropW = Math.floor(img.naturalWidth / side);
+    const cropH = Math.floor(img.naturalHeight / side);
+    const nodeW = Math.max(120, Math.min(220, Math.round((source.w || 240) / Math.max(1.4, side / 2))));
+    const gap = 18;
+    const startX = source.x + (source.w || 240) + 80;
+    const startY = source.y;
+    const created = [];
+    for (let row = 0; row < side; row += 1) {
+      for (let col = 0; col < side; col += 1) {
+        const canvas = document.createElement('canvas');
+        canvas.width = cropW;
+        canvas.height = cropH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, col * cropW, row * cropH, cropW, cropH, 0, 0, cropW, cropH);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const node = addNode('image', startX + col * (nodeW + gap), startY + row * (Math.round(nodeW * cropH / cropW) + 56), {
+          title: `${source.title || '图片'}_${row + 1}-${col + 1}`,
+          url: dataUrl,
+          mime: 'image/jpeg',
+          role: 'grid_crop',
+          w: nodeW,
+          imageRatio: cropW / cropH,
+          naturalWidth: cropW,
+          naturalHeight: cropH,
+        });
+        created.push(node.id);
+      }
+    }
+    state.selectedIds = created;
+    state.selectedId = created[0] || source.id;
+    render();
+    saveCanvas();
+    setStatus(`已裁切 ${grid} 宫格`);
+  } catch (err) {
+    setStatus(`裁切失败：${err.message}`);
+  }
+}
+
+function toggleAnnotationMode(nodeId, enabled = true) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || !imageUrlForNode(node)) {
+    setStatus('请先选择一张图片再标注');
+    return;
+  }
+  node.annotationMode = enabled;
+  node.annotationTool ||= 'brush';
+  state.selectedId = node.id;
+  render();
+  saveCanvas();
+  setStatus(enabled ? '已打开绘画注释：可画圈或添加文字' : '绘画注释已完成');
+}
+
+function annotationPoint(event, layer) {
+  const rect = layer.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+    y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+  };
 }
 
 function createImageUtilityNode(sourceId, tool, options = {}) {
@@ -1139,6 +2313,10 @@ function createImageUtilityNode(sourceId, tool, options = {}) {
         ? '绘画注释'
         : `${options.grid || 9}宫格裁切`;
   const refIds = sourceAndInheritedImageIds(source);
+  if (!refIds.length) {
+    setStatus('请先生成图片，或连接参考图后再使用这个工具');
+    return;
+  }
   const node = addNode('i2i', source.x + (source.w || 360) + 80, source.y, {
     title,
     text: prompt,
@@ -1209,7 +2387,7 @@ async function generate() {
     mode: effectiveMode,
     prompt,
     model: isVideoMode(effectiveMode) ? videoModelName() : (els.model?.value || 'banana'),
-    videoProvider: isVideoMode(effectiveMode) ? (state.config?.defaults?.videoProvider || 'maas') : '',
+    videoProvider: isVideoMode(effectiveMode) ? 'ark' : '',
     ratio: els.ratio.value,
     duration: Number(els.duration.value || 8),
     generateAudio: els.generateAudio.checked,
@@ -1256,7 +2434,10 @@ async function generateFromNode(nodeId) {
     return;
   }
 
-  node.model = videoModelName();
+  node.videoProvider ||= 'ark';
+  node.model = node.videoProvider === 'multimodal'
+    ? (state.config?.apis?.multimodal?.submitModel || videoModelName())
+    : videoModelName();
   node.taskStatus = 'queued';
   node.progressText = '正在提交生成任务...';
   node.progressPercent = 12;
@@ -1267,11 +2448,11 @@ async function generateFromNode(nodeId) {
   const payload = {
     mode: node.type,
     prompt,
-    model: videoModelName(),
-    videoProvider: state.config?.defaults?.videoProvider || 'maas',
+    model: node.model,
+    videoProvider: node.videoProvider || 'ark',
     ratio: node.ratio || '16:9',
     duration: Number(node.duration || 5),
-    resolution: node.resolution || '720p',
+    resolution: node.resolution || '4K',
     generateAudio: !!node.generateAudio,
     watermark: !!node.watermark,
     references: referencesForNode(node.id),
@@ -1564,6 +2745,38 @@ async function loadConfig() {
   const remoteConfig = await res.json();
   state.config = normalizeConfigShape(mergeConfig(remoteConfig, localUserConfig()));
   applyConfigToUI();
+  refreshBalances();
+}
+
+function formatBalanceValue(info) {
+  if (!info) return '¥ --';
+  if (info.ok && info.balance !== null && info.balance !== undefined && info.balance !== '') {
+    const value = Number(info.balance);
+    if (Number.isFinite(value)) return `¥ ${value.toFixed(value >= 100 ? 2 : 3)}`;
+    return `¥ ${info.balance}`;
+  }
+  if (info.error === 'missing_key') return '未配置';
+  return '查询失败';
+}
+
+async function refreshBalances() {
+  try {
+    if (els.imageBalance) els.imageBalance.textContent = '查询中';
+    if (els.videoBalance) els.videoBalance.textContent = '查询中';
+    const res = await fetch('/api/balances', { cache: 'no-store' });
+    const data = await readJsonResponse(res);
+    if (els.imageBalance) {
+      els.imageBalance.textContent = formatBalanceValue(data.image);
+      els.imageBalance.title = data.image?.source || data.image?.message || '';
+    }
+    if (els.videoBalance) {
+      els.videoBalance.textContent = formatBalanceValue(data.video);
+      els.videoBalance.title = data.video?.source || data.video?.message || '';
+    }
+  } catch (err) {
+    if (els.imageBalance) els.imageBalance.textContent = '查询失败';
+    if (els.videoBalance) els.videoBalance.textContent = '查询失败';
+  }
 }
 
 function referencesMentionedInPrompt(prompt, refs) {
@@ -1583,13 +2796,10 @@ function applyConfigToUI() {
   if (els.watermark) els.watermark.checked = !!cfg.defaults.watermark;
   fillModelSelect();
 
-  document.querySelector('#providerMaas').checked = (cfg.defaults.videoProvider || 'maas') === 'maas';
-  document.querySelector('#providerArk').checked = cfg.defaults.videoProvider === 'ark';
+  cfg.defaults.videoProvider = 'ark';
+  document.querySelector('#providerArk').checked = true;
   document.querySelector('#imageModeStandard').checked = (cfg.defaults.imageSettingsMode || 'standard') === 'standard';
   document.querySelector('#imageModeI2i').checked = cfg.defaults.imageSettingsMode === 'i2i';
-  document.querySelector('#maasBaseUrl').value = cfg.apis.maas.baseUrl || '';
-  document.querySelector('#maasApiKey').value = cfg.apis.maas.apiKey || '';
-  document.querySelector('#maasWebsite').value = cfg.apis.maas.website || '';
   document.querySelector('#arkBaseUrl').value = cfg.apis.ark.baseUrl || '';
   document.querySelector('#arkApiKey').value = cfg.apis.ark.apiKey || '';
   document.querySelector('#arkModel').value = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
@@ -1610,24 +2820,21 @@ function applyConfigToUI() {
   document.querySelector('#multiSubmitModel').value = cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
   document.querySelector('#multiQueryModel').value = cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
   document.querySelector('#multiRequestFormat').value = cfg.apis.multimodal.requestFormat || 'responses-json';
-  document.querySelector('#multiResolution').value = cfg.apis.multimodal.resolution || '720p';
+  document.querySelector('#multiResolution').value = cfg.apis.multimodal.resolution || '4K';
   document.querySelector('#multiRatio').value = cfg.apis.multimodal.ratio || '16:9';
   document.querySelector('#multiDuration').value = String(cfg.apis.multimodal.duration || 8);
   document.querySelector('#multiWatermark').checked = !!cfg.apis.multimodal.watermark;
   document.querySelector('#multiReturnLastFrame').checked = !!cfg.apis.multimodal.returnLastFrame;
   document.querySelector('#multiWebSearch').checked = !!cfg.apis.multimodal.webSearch;
-  document.querySelector('#videoModels').value = (cfg.models.video || []).join(', ');
   document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
   updateVideoProviderUI();
   updateImageSettingsModeUI();
 }
 
 function updateVideoProviderUI() {
-  const provider = document.querySelector('input[name="videoProvider"]:checked')?.value || 'maas';
-  const maas = document.querySelector('.settings-video-maas');
+  const provider = 'ark';
   const ark = document.querySelector('.settings-video-ark');
   [
-    [maas, provider !== 'maas'],
     [ark, provider !== 'ark'],
   ].forEach(([panel, disabled]) => {
     if (!panel) return;
@@ -1671,9 +2878,7 @@ function isVideoMode(mode) {
 
 function videoModelName() {
   const cfg = state.config || {};
-  const provider = cfg.defaults?.videoProvider || 'maas';
-  if (provider === 'ark') return cfg.apis?.ark?.modelName || 'doubao-seedance-2-0-260';
-  return cfg.defaults?.videoModel || cfg.models?.video?.[0] || 'doubao-seedance-2.0';
+  return cfg.apis?.ark?.modelName || 'doubao-seedance-2-0-260';
 }
 
 function selectVideoModel() {
@@ -1690,11 +2895,8 @@ function selectVideoModel() {
 
 function collectSettingsFromUI() {
   const cfg = normalizeConfigShape(state.config);
-  cfg.defaults.videoProvider = document.querySelector('input[name="videoProvider"]:checked')?.value || 'maas';
+  cfg.defaults.videoProvider = 'ark';
   cfg.defaults.imageSettingsMode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
-  cfg.apis.maas.baseUrl = document.querySelector('#maasBaseUrl').value.trim();
-  cfg.apis.maas.apiKey = document.querySelector('#maasApiKey').value.trim();
-  cfg.apis.maas.website = document.querySelector('#maasWebsite').value.trim();
   cfg.apis.ark.baseUrl = document.querySelector('#arkBaseUrl').value.trim();
   cfg.apis.ark.apiKey = document.querySelector('#arkApiKey').value.trim();
   cfg.apis.ark.website = cfg.apis.ark.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
@@ -1718,20 +2920,15 @@ function collectSettingsFromUI() {
   cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel').value.trim() || 'seedance-2-0-get';
   cfg.apis.multimodal.requestFormat = document.querySelector('#multiRequestFormat').value || 'responses-json';
   cfg.apis.multimodal.authMode = 'bearer';
-  cfg.apis.multimodal.resolution = document.querySelector('#multiResolution').value || '720p';
+  cfg.apis.multimodal.resolution = document.querySelector('#multiResolution').value || '4K';
   cfg.apis.multimodal.ratio = document.querySelector('#multiRatio').value || '16:9';
   cfg.apis.multimodal.duration = Number(document.querySelector('#multiDuration').value || 8);
   cfg.apis.multimodal.watermark = document.querySelector('#multiWatermark').checked;
   cfg.apis.multimodal.returnLastFrame = document.querySelector('#multiReturnLastFrame').checked;
   cfg.apis.multimodal.webSearch = document.querySelector('#multiWebSearch').checked;
-  cfg.models.video = document.querySelector('#videoModels').value.split(',').map(s => s.trim()).filter(Boolean);
+  cfg.models.video = [cfg.apis.ark.modelName].filter(Boolean);
   cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
-  if (!cfg.models.video.includes('doubao-seedance-2.0')) {
-    cfg.models.video.unshift('doubao-seedance-2.0');
-  }
-  cfg.defaults.videoModel = cfg.defaults.videoProvider === 'ark'
-    ? cfg.apis.ark.modelName
-    : 'doubao-seedance-2.0';
+  cfg.defaults.videoModel = cfg.apis.ark.modelName;
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';
   return cfg;
 }
@@ -1751,6 +2948,7 @@ async function saveSettings() {
   const cfg = collectSettingsFromUI();
   await persistSettingsConfig(cfg);
   els.settings.classList.add('hidden');
+  refreshBalances();
   setStatus('设置已保存');
 }
 
@@ -1776,16 +2974,67 @@ function bindEvents() {
   let draggingGroup = null;
   let resizingNode = null;
   let resizingPanel = null;
+  let draggingAssetNode = null;
+  let drawingAnnotation = null;
+  let draggingCompare = null;
   let last = { x: 0, y: 0 };
 
+  els.gridSettingsToggle?.addEventListener('click', event => {
+    event.stopPropagation();
+    els.gridSettingsPanel?.classList.toggle('hidden');
+  });
+
+  els.agentFloat?.addEventListener('click', () => {
+    els.agentDock?.classList.remove('hidden');
+    els.agentFloat?.classList.add('hidden');
+  });
+
+  els.closeAgentDock?.addEventListener('click', () => {
+    els.agentDock?.classList.add('hidden');
+    els.agentFloat?.classList.remove('hidden');
+  });
+
+  els.agentUploadButton?.addEventListener('click', () => els.agentRefInput?.click());
+  els.agentRefInput?.addEventListener('change', () => {
+    addAgentRefFiles(els.agentRefInput.files || []);
+    els.agentRefInput.value = '';
+  });
+  els.agentRefs?.addEventListener('click', event => {
+    const btn = event.target.closest('[data-agent-ref-remove]');
+    if (!btn) return;
+    state.agentRefs.splice(Number(btn.dataset.agentRefRemove), 1);
+    renderAgentRefs();
+  });
+
+  [els.gridSpacing, els.gridDot, els.linkWidth].forEach(input => {
+    input?.addEventListener('input', () => {
+      state.grid.spacing = Number(els.gridSpacing?.value || state.grid.spacing);
+      state.grid.dot = Number(els.gridDot?.value || state.grid.dot);
+      state.grid.linkWidth = Number(els.linkWidth?.value || state.grid.linkWidth);
+      applyGridSettings();
+      saveGridSettings();
+    });
+  });
+
   els.stage.addEventListener('contextmenu', event => {
+    if (event.target.closest('#projectBoard, #materialBoard')) return;
     event.preventDefault();
+    const nodeEl = event.target.closest('.node');
+    state.menuNodeId = nodeEl?.dataset.id || null;
+    if (nodeEl) {
+      state.selectedId = nodeEl.dataset.id;
+      state.selectedIds = [nodeEl.dataset.id];
+      state.selectedLinkId = null;
+    }
     state.menuPoint = screenToWorld(event.clientX, event.clientY);
     showMenu(event.clientX, event.clientY);
   });
 
   document.addEventListener('click', event => {
     if (!els.menu.contains(event.target)) hideMenu();
+    if (!event.target.closest('#gridSettingsPanel') && !event.target.closest('#gridSettingsToggle')) {
+      els.gridSettingsPanel?.classList.add('hidden');
+    }
   });
 
   els.world.addEventListener('dblclick', event => {
@@ -1800,8 +3049,44 @@ function bindEvents() {
   });
 
   els.stage.addEventListener('mousedown', event => {
+    if (event.target.closest('#projectBoard, #materialBoard')) return;
     hideMenu();
     last = { x: event.clientX, y: event.clientY };
+    if (event.target.closest('.annotation-toolbar')) return;
+    const compareStage = event.target.closest('[data-compare-stage]');
+    if (compareStage) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      draggingCompare = { nodeId: node.id, el: compareStage };
+      const rect = compareStage.getBoundingClientRect();
+      node.compareSplit = Math.max(3, Math.min(97, ((event.clientX - rect.left) / rect.width) * 100));
+      compareStage.style.setProperty('--split', `${node.compareSplit}%`);
+      return;
+    }
+    const annotationLayer = event.target.closest('[data-annotation-layer].active');
+    if (annotationLayer) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      const point = annotationPoint(event, annotationLayer);
+      if (node.annotationTool === 'text') {
+        const text = prompt('输入标注文字');
+        if (text?.trim()) {
+          node.annotations = [...(node.annotations || []), { type: 'text', text: text.trim(), x: point.x, y: point.y, color: '#ccff00' }];
+          render();
+          saveCanvas();
+        }
+      } else {
+        node.annotations = [...(node.annotations || []), { type: 'path', points: [point], color: '#ccff00' }];
+        drawingAnnotation = { nodeId: node.id };
+      }
+      return;
+    }
     if (state.scissors || event.shiftKey) {
       state.scissors = true;
       els.stage.classList.add('scissors');
@@ -1855,21 +3140,31 @@ function bindEvents() {
       updateNodeInfo();
       return;
     }
-    const port = event.target.closest('.port');
-    if (port) {
+    const linkHandle = linkHandleFromPointer(event);
+    if (linkHandle) {
+      event.preventDefault();
       event.stopPropagation();
-      const nodeEl = event.target.closest('.node');
+      const nodeEl = linkHandle.nodeEl;
+      if (!nodeEl) return;
       const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
-      if (!node || port.dataset.port !== 'out') return;
+      if (!node) return;
       state.selectedId = node.id;
       state.selectedLinkId = null;
-      const sourceIds = state.selectedIds.includes(node.id) && state.selectedIds.length > 1
+      const portKind = linkHandle.portKind;
+      const canStartFromPort = portKind === 'in' ? canInput(node.type) : canOutput(node.type);
+      if (!canStartFromPort) return;
+      const sourceIds = portKind === 'out' && state.selectedIds.includes(node.id) && state.selectedIds.length > 1
         ? state.selectedIds.filter(id => canOutput(state.nodes.find(n => n.id === id)?.type))
         : [node.id];
+      const fromPoint = portKind === 'in'
+        ? { x: node.x, y: node.y + 53 }
+        : { x: node.x + node.w, y: node.y + 53 };
       state.linking = {
         sourceId: node.id,
         sourceIds,
-        from: { x: node.x + node.w, y: node.y + 53 },
+        targetId: portKind === 'in' ? node.id : '',
+        port: portKind,
+        from: fromPoint,
         to: screenToWorld(event.clientX, event.clientY),
       };
       render();
@@ -1879,6 +3174,21 @@ function bindEvents() {
     if (nodeEl) {
       const id = nodeEl.dataset.id;
       const clickedNode = state.nodes.find(n => n.id === id);
+      const assetPreview = event.target.closest('[data-drag-asset-node]');
+      if (assetPreview && isAssetCandidateNode(clickedNode) && event.ctrlKey) {
+        draggingAssetNode = {
+          id,
+          startedAt: { x: event.clientX, y: event.clientY },
+        };
+        state.selectedId = id;
+        state.selectedIds = [id];
+        state.selectedLinkId = null;
+        document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
+        nodeEl.classList.add('selected');
+        setStatus('拖到左侧资产分类，松手即可加入资产');
+        event.preventDefault();
+        return;
+      }
       if (clickedNode && isGeneratorType(clickedNode.type)) {
         state.activeParamNodeId = clickedNode.id;
         clickedNode.expanded = true;
@@ -1964,10 +3274,18 @@ function bindEvents() {
     const dx = (event.clientX - last.x);
     const dy = (event.clientY - last.y);
     last = { x: event.clientX, y: event.clientY };
+    if (draggingAssetNode) {
+      document.querySelectorAll('[data-asset-filter]').forEach(btn => btn.classList.remove('drop-target'));
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-asset-filter]');
+      if (target) target.classList.add('drop-target');
+      return;
+    }
     if (resizingNode) {
       const node = state.nodes.find(n => n.id === resizingNode.id);
       node.w = Math.max(180, (node.w || resizingNode.startW) + dx / state.scale);
-      node.h = isGeneratorType(node.type)
+      node.h = node.fullscreenPreview
+        ? Math.max(220, (node.h || resizingNode.startH) + dy / state.scale)
+        : isGeneratorType(node.type)
         ? previewHeightForNode(node)
         : shouldKeepImageRatio(node)
           ? imageNodeHeight(node)
@@ -1977,7 +3295,7 @@ function bindEvents() {
       const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
       if (panel) {
         panel.style.left = `${node.x}px`;
-        panel.style.top = `${node.y + previewHeightForNode(node) + 12}px`;
+        panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
       }
       scheduleRenderLinks();
       return;
@@ -2000,6 +3318,21 @@ function bindEvents() {
     if (state.linking) {
       state.linking.to = screenToWorld(event.clientX, event.clientY);
       scheduleRenderLinks();
+    } else if (draggingCompare) {
+      const node = state.nodes.find(n => n.id === draggingCompare.nodeId);
+      const rect = draggingCompare.el.getBoundingClientRect();
+      if (node) {
+        node.compareSplit = Math.max(3, Math.min(97, ((event.clientX - rect.left) / rect.width) * 100));
+        draggingCompare.el.style.setProperty('--split', `${node.compareSplit}%`);
+      }
+    } else if (drawingAnnotation) {
+      const node = state.nodes.find(n => n.id === drawingAnnotation.nodeId);
+      const layer = document.querySelector(`.node[data-id="${drawingAnnotation.nodeId}"] [data-annotation-layer]`);
+      const lastAnnotation = node?.annotations?.[node.annotations.length - 1];
+      if (node && layer && lastAnnotation?.type === 'path') {
+        lastAnnotation.points.push(annotationPoint(event, layer));
+        render();
+      }
     } else if (draggingNode) {
       const node = state.nodes.find(n => n.id === draggingNode.id);
       node.x += dx / state.scale;
@@ -2010,7 +3343,7 @@ function bindEvents() {
       const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
       if (panel) {
         panel.style.left = `${node.x}px`;
-        panel.style.top = `${node.y + previewHeightForNode(node) + 12}px`;
+        panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
       }
       scheduleRenderLinks();
     } else if (draggingGroup) {
@@ -2036,6 +3369,26 @@ function bindEvents() {
   });
 
   document.addEventListener('mouseup', event => {
+    if (draggingAssetNode) {
+      const targetFilter = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-asset-filter]');
+      const leftbar = document.querySelector('.leftbar');
+      const overLeftbar = !!document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.leftbar');
+      const activeFilter = document.querySelector('[data-asset-filter].active');
+      const filter = targetFilter || (overLeftbar ? activeFilter : null);
+      document.querySelectorAll('[data-asset-filter]').forEach(btn => btn.classList.remove('drop-target'));
+      if (filter) {
+        const category = filter.dataset.assetFilter === 'all' ? 'other' : filter.dataset.assetFilter;
+        addAssetFromNode(draggingAssetNode.id, { category });
+        document.querySelectorAll('[data-asset-filter]').forEach(btn => btn.classList.remove('active'));
+        filter.classList.add('active');
+        state.assetFilter = filter.dataset.assetFilter;
+        renderAssets();
+      } else {
+        setStatus('未放到资产分类，已取消加入资产');
+      }
+      draggingAssetNode = null;
+      return;
+    }
     if (state.selecting) {
       finishSelection(event.clientX, event.clientY);
       state.selecting = null;
@@ -2045,21 +3398,30 @@ function bindEvents() {
       return;
     }
     if (state.linking) {
-      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.node');
+      const target = eventNodeElement(document.elementFromPoint(event.clientX, event.clientY));
       const targetNode = target ? state.nodes.find(n => n.id === target.dataset.id) : null;
-      if (targetNode && targetNode.id !== state.linking.sourceId && canInput(targetNode.type)) {
+      if (state.linking.port === 'in' && targetNode && targetNode.id !== state.linking.targetId && canOutput(targetNode.type)) {
+        linkManyToTarget([targetNode.id], state.linking.targetId);
+        state.selectedLinkId = state.links[state.links.length - 1]?.id || null;
+        state.selectedId = null;
+        state.pendingLink = null;
+      } else if (state.linking.port !== 'in' && targetNode && targetNode.id !== state.linking.sourceId && canInput(targetNode.type)) {
         linkManyToTarget(state.linking.sourceIds || [state.linking.sourceId], targetNode.id);
         state.selectedLinkId = state.links[state.links.length - 1]?.id || null;
         state.selectedId = null;
         state.pendingLink = null;
       } else {
-        state.pendingLink = {
-          from: state.linking.sourceId,
-          fromIds: state.linking.sourceIds || [state.linking.sourceId],
-          point: screenToWorld(event.clientX, event.clientY),
-        };
-        state.menuPoint = state.pendingLink.point;
-        showMenu(event.clientX, event.clientY, { keepPendingLink: true });
+        if (state.linking.port === 'in') {
+          setStatus('请把线拖到可输出的节点上');
+        } else {
+          state.pendingLink = {
+            from: state.linking.sourceId,
+            fromIds: state.linking.sourceIds || [state.linking.sourceId],
+            point: screenToWorld(event.clientX, event.clientY),
+          };
+          state.menuPoint = state.pendingLink.point;
+          showMenu(event.clientX, event.clientY, { keepPendingLink: true });
+        }
       }
       state.linking = null;
       render();
@@ -2093,9 +3455,20 @@ function bindEvents() {
       return;
     }
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    if (state.projectView || state.materialView) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault();
       selectAllNodes();
+      return;
+    }
+    if (drawingAnnotation) {
+      drawingAnnotation = null;
+      saveCanvas();
+      return;
+    }
+    if (draggingCompare) {
+      draggingCompare = null;
+      saveCanvas();
       return;
     }
     if (event.code === 'Space') {
@@ -2120,11 +3493,6 @@ function bindEvents() {
       toggleMaximizeSelectedNode();
       return;
     }
-    if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'f') {
-      event.preventDefault();
-      focusSelectedNode();
-      return;
-    }
     if (event.key === 'Shift') {
       state.scissors = true;
       els.stage.classList.add('scissors');
@@ -2137,7 +3505,7 @@ function bindEvents() {
       state.selectedIds = [];
       render();
       saveCanvas();
-      setStatus('宸插垹闄ら€変腑节点');
+      setStatus('已删除选中节点');
     } else if (state.selectedId) {
       deleteNode(state.selectedId);
     } else if (state.selectedLinkId) {
@@ -2172,6 +3540,7 @@ function bindEvents() {
   });
 
   els.stage.addEventListener('wheel', event => {
+    if (event.target.closest('#projectBoard, #materialBoard')) return;
     event.preventDefault();
     const before = screenToWorld(event.clientX, event.clientY);
     const factor = event.deltaY > 0 ? 0.9 : 1.1;
@@ -2329,6 +3698,15 @@ function bindEvents() {
   });
 
   els.world.addEventListener('dragstart', event => {
+    const assetDrag = event.target.closest('[data-drag-asset-node]');
+    if (assetDrag) {
+      const payload = JSON.stringify({ type: 'asset-node', nodeId: assetDrag.dataset.dragAssetNode });
+      event.dataTransfer.setData('application/x-ai-canvas-asset-node', assetDrag.dataset.dragAssetNode);
+      event.dataTransfer.setData('text/plain', payload);
+      event.dataTransfer.effectAllowed = 'copy';
+      setStatus('拖到左侧分类即可加入资产');
+      return;
+    }
     const card = event.target.closest('[data-ref-index]');
     if (!card) {
       event.preventDefault();
@@ -2403,6 +3781,10 @@ function bindEvents() {
     event.stopPropagation();
     const nodeEl = eventNodeElement(event.target);
     const tool = toolBtn.dataset.imageTool;
+    if (tool === 'paintNote') {
+      toggleAnnotationMode(nodeEl.dataset.id, true);
+      return;
+    }
     createImageUtilityNode(nodeEl.dataset.id, tool);
   });
 
@@ -2412,7 +3794,41 @@ function bindEvents() {
     event.preventDefault();
     event.stopPropagation();
     const nodeEl = eventNodeElement(event.target);
-    createImageUtilityNode(nodeEl.dataset.id, 'gridCrop', { grid: Number(gridBtn.dataset.imageGrid || 9) });
+    cropImageGrid(nodeEl.dataset.id, Number(gridBtn.dataset.imageGrid || 9));
+  });
+
+  els.world.addEventListener('click', event => {
+    const tool = event.target.closest('[data-annotation-tool]');
+    if (tool) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      node.annotationTool = tool.dataset.annotationTool;
+      render();
+      saveCanvas();
+      return;
+    }
+    const clear = event.target.closest('[data-annotation-clear]');
+    if (clear) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      node.annotations = [];
+      render();
+      saveCanvas();
+      return;
+    }
+    const done = event.target.closest('[data-annotation-done]');
+    if (done) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      toggleAnnotationMode(nodeEl?.dataset.id, false);
+    }
   });
 
   els.world.addEventListener('click', event => {
@@ -2440,17 +3856,56 @@ function bindEvents() {
     els.imageInput.click();
   });
 
+  els.world.addEventListener('click', event => {
+    const openDirector = event.target.closest('[data-open-director-stage]');
+    if (openDirector) {
+      event.preventDefault();
+      event.stopPropagation();
+      els.directorStage?.classList.remove('hidden');
+      return;
+    }
+    const addDirector = event.target.closest('[data-director-add]');
+    if (!addDirector) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
+    if (!node) return;
+    const name = prompt('角色名称', `角色${(node.directors?.length || 0) + 1}`);
+    if (!name?.trim()) return;
+    node.directors = [...(node.directors || []), name.trim()];
+    render();
+    saveCanvas();
+    setStatus(`已添加角色：${name.trim()}`);
+  });
+
+  els.closeDirectorStage?.addEventListener('click', () => {
+    els.directorStage?.classList.add('hidden');
+  });
+
   document.querySelectorAll('.segmented button').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.segmented button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      state.mode = btn.dataset.mode;
-      fillModelSelect();
-      if (isVideoMode(state.mode)) {
-        selectVideoModel();
-        setStatus(`已切换为视频模型：${videoModelName()}`);
-      } else {
-        setStatus('已切换为生图模型');
+      if (btn.dataset.mode === 't2i') {
+        hideMaterialBoard();
+        showProjectBoard();
+        setStatus('项目入口已打开，点击卡片进入画布');
+        return;
+      }
+      if (btn.dataset.mode === 'i2i') {
+        showMaterialBoard('materials');
+        setStatus('已打开本地素材库');
+        return;
+      }
+      if (btn.dataset.mode === 't2v') {
+        showMaterialBoard('prompts');
+        setStatus('已打开提示词预设');
+        return;
+      }
+      if (btn.dataset.mode === 'i2v') {
+        showMaterialBoard('clone');
+        setStatus('已打开爆款克隆');
       }
     });
   });
@@ -2475,9 +3930,7 @@ function bindEvents() {
       if (action === 'addPrompt') addNode('prompt', p.x, p.y, { text: els.prompt?.value || '写一个提示词...' });
       if (action === 'addT2V') addNode('t2v', p.x, p.y, { title: '视频生成', text: els.prompt?.value || '' });
       if (action === 'fit') {
-        state.scale = 1;
-        state.pan = { x: -49800, y: -49800 };
-        applyTransform();
+        fitAllNodes();
       }
       if (action === 'save') saveCanvas();
       if (action === 'clear' && confirm('确认清空画布？')) {
@@ -2503,6 +3956,9 @@ function bindEvents() {
     } else if (type === 'group') {
       groupSelectedNodes();
       return;
+    } else if (type === 'add-asset') {
+      openAssetDialog(state.menuNodeId || state.selectedId);
+      return;
     } else if (type === 'upload') {
       els.fileInput.click();
     } else if (type === 'upload-image') {
@@ -2518,28 +3974,39 @@ function bindEvents() {
   });
 
   els.fileInput.addEventListener('change', () => {
-    uploadFiles([...els.fileInput.files], state.menuPoint);
+    if (state.materialUploadType) uploadFilesToAssets([...els.fileInput.files], 'auto');
+    else uploadFiles([...els.fileInput.files], state.menuPoint);
+    state.materialUploadType = '';
     els.fileInput.value = '';
   });
 
   els.imageInput.addEventListener('change', () => {
-    uploadFiles([...els.imageInput.files], state.menuPoint);
+    if (state.materialUploadType) uploadFilesToAssets([...els.imageInput.files], 'auto');
+    else uploadFiles([...els.imageInput.files], state.menuPoint);
+    state.materialUploadType = '';
     els.imageInput.value = '';
   });
 
   els.videoInput.addEventListener('change', () => {
-    uploadFiles([...els.videoInput.files], state.menuPoint);
+    if (state.materialUploadType) uploadFilesToAssets([...els.videoInput.files], 'auto');
+    else uploadFiles([...els.videoInput.files], state.menuPoint);
+    state.materialUploadType = '';
     els.videoInput.value = '';
   });
 
   els.audioInput.addEventListener('change', () => {
-    uploadFiles([...els.audioInput.files], state.menuPoint);
+    if (state.materialUploadType) uploadFilesToAssets([...els.audioInput.files], 'auto');
+    else uploadFiles([...els.audioInput.files], state.menuPoint);
+    state.materialUploadType = '';
     els.audioInput.value = '';
   });
 
   document.querySelectorAll('.rail-item').forEach(btn => {
     btn.addEventListener('click', () => {
       if (!btn.dataset.tab) return;
+      els.agentDock?.classList.add('hidden');
+      els.agentFloat?.classList.remove('hidden');
+      hideProjectBoard();
       const leftbar = document.querySelector('.leftbar');
       const isOpen = leftbar?.classList.contains('open');
       const isSame = btn.classList.contains('active');
@@ -2559,16 +4026,247 @@ function bindEvents() {
   els.assetList?.addEventListener('click', event => {
     const item = event.target.closest('[data-asset]');
     if (!item) return;
-    const asset = state.nodes.find(n => n.id === item.dataset.asset);
+    const asset = (state.assets || []).find(n => n.id === item.dataset.asset);
     if (!asset) return;
-    const p = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
-    addNode(asset.type, p.x, p.y, {
-      title: asset.title,
-      url: asset.url,
-      mime: asset.mime,
-      kind: asset.kind,
-      role: asset.role,
+    addAssetNodeToCanvas(asset);
+  });
+
+  els.projectBoard?.addEventListener('click', event => {
+    const menuBtn = event.target.closest('[data-project-menu]');
+    if (menuBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = menuBtn.getBoundingClientRect();
+      showProjectMenu(menuBtn.dataset.projectMenu, rect.left, rect.bottom + 6);
+      return;
+    }
+    const newProject = event.target.closest('[data-new-project]');
+    if (newProject) {
+      hideProjectMenu();
+      createNewProject();
+      return;
+    }
+    const projectCard = event.target.closest('[data-open-project]');
+    if (projectCard) {
+      hideProjectMenu();
+      openProject(projectCard.dataset.openProject);
+    }
+  });
+
+  els.projectBoard?.addEventListener('mousedown', event => {
+    event.stopPropagation();
+  });
+
+  els.projectTitleBar?.addEventListener('click', event => {
+    event.preventDefault();
+    showProjectBoard();
+    setStatus('已返回项目管理');
+  });
+
+  els.projectTitleBar?.addEventListener('contextmenu', event => {
+    event.preventDefault();
+    const project = state.projects.find(item => item.id === state.currentProjectId);
+    if (!project) return;
+    const name = prompt('请输入项目名称', project.name || '默认项目');
+    if (!name?.trim()) return;
+    project.name = name.trim();
+    project.updatedAt = Date.now();
+    saveProjectStore();
+    updateProjectTitleBar();
+    setStatus(`项目已重命名：${project.name}`);
+  });
+
+  els.materialBoard?.addEventListener('mousedown', event => {
+    event.stopPropagation();
+  });
+
+  els.materialBoard?.addEventListener('click', event => {
+    const rename = event.target.closest('[data-material-rename]');
+    if (rename) {
+      event.preventDefault();
+      event.stopPropagation();
+      const asset = state.assets.find(item => item.id === rename.dataset.materialRename);
+      if (!asset) return;
+      const name = prompt('素材名称', asset.name || asset.title || '未命名素材');
+      if (!name?.trim()) return;
+      asset.name = name.trim();
+      asset.title = name.trim();
+      renderAssets();
+      renderMaterialBoard();
+      saveCanvas();
+      setStatus(`素材已改名：${asset.name}`);
+      return;
+    }
+    const deleteBtn = event.target.closest('[data-material-delete]');
+    if (deleteBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const asset = state.assets.find(item => item.id === deleteBtn.dataset.materialDelete);
+      if (!asset) return;
+      if (!confirm(`删除素材「${asset.name || asset.title || '未命名素材'}」？`)) return;
+      state.assets = (state.assets || []).filter(item => item.id !== asset.id);
+      renderAssets();
+      renderMaterialBoard();
+      saveCanvas();
+      setStatus('素材已删除');
+      return;
+    }
+    const upload = event.target.closest('[data-material-upload]');
+    if (upload) {
+      state.materialUploadType = upload.dataset.materialUpload;
+      if (state.materialUploadType === 'image') els.imageInput.click();
+      if (state.materialUploadType === 'video') els.videoInput.click();
+      if (state.materialUploadType === 'audio') els.audioInput.click();
+      return;
+    }
+    const materialFilter = event.target.closest('[data-material-filter]');
+    if (materialFilter) {
+      state.materialFilter = materialFilter.dataset.materialFilter;
+      renderMaterialBoard();
+      return;
+    }
+    const presetFilter = event.target.closest('[data-preset-filter]');
+    if (presetFilter) {
+      state.promptPresetFilter = presetFilter.dataset.presetFilter;
+      state.selectedPromptPresetId = '';
+      renderMaterialBoard();
+      return;
+    }
+    const cardDelete = event.target.closest('[data-preset-card-delete]');
+    if (cardDelete) {
+      event.preventDefault();
+      event.stopPropagation();
+      deletePromptPreset(cardDelete.dataset.presetCardDelete);
+      return;
+    }
+    const presetCard = event.target.closest('[data-preset-id]');
+    if (presetCard) {
+      state.selectedPromptPresetId = presetCard.dataset.presetId;
+      renderMaterialBoard();
+      return;
+    }
+    if (event.target.closest('[data-preset-new]')) {
+      upsertPromptPreset();
+      return;
+    }
+    const savePreset = event.target.closest('[data-preset-save]');
+    if (savePreset) {
+      savePromptPresetFromEditor(savePreset.dataset.presetSave);
+      return;
+    }
+    const copy = event.target.closest('[data-preset-copy]');
+    if (copy) {
+      copyPromptPreset(copy.dataset.presetCopy);
+      return;
+    }
+    const insert = event.target.closest('[data-preset-insert]');
+    if (insert) {
+      insertPromptPresetToCanvas(insert.dataset.presetInsert);
+    }
+  });
+
+  els.materialBoard?.addEventListener('contextmenu', event => {
+    if (state.materialView !== 'materials') return;
+    const card = event.target.closest('[data-asset]');
+    if (!card) return;
+    event.preventDefault();
+    event.stopPropagation();
+    showMaterialContextMenu(card.dataset.asset, event.clientX, event.clientY);
+  });
+
+  els.materialBoard?.addEventListener('dragstart', event => {
+    if (state.materialView !== 'materials') return;
+    const card = event.target.closest('[data-asset]');
+    if (!card) return;
+    event.dataTransfer.setData('application/x-ai-material-id', card.dataset.asset);
+    event.dataTransfer.effectAllowed = 'move';
+  });
+
+  els.materialBoard?.addEventListener('dragover', event => {
+    if (state.materialView !== 'materials') return;
+    event.preventDefault();
+    const types = Array.from(event.dataTransfer.types || []);
+    event.dataTransfer.dropEffect = types.includes('application/x-ai-material-id') ? 'move' : 'copy';
+    els.materialBoard.classList.add('drop-active');
+  });
+
+  els.materialBoard?.addEventListener('dragleave', event => {
+    if (!els.materialBoard.contains(event.relatedTarget)) {
+      els.materialBoard.classList.remove('drop-active');
+    }
+  });
+
+  els.materialBoard?.addEventListener('drop', async event => {
+    if (state.materialView !== 'materials') return;
+    event.preventDefault();
+    els.materialBoard.classList.remove('drop-active');
+    const draggedAssetId = event.dataTransfer.getData('application/x-ai-material-id');
+    if (draggedAssetId) {
+      const targetId = event.target.closest('[data-asset]')?.dataset.asset;
+      if (targetId && targetId !== draggedAssetId) {
+        const assets = [...(state.assets || [])];
+        const from = assets.findIndex(item => item.id === draggedAssetId);
+        const to = assets.findIndex(item => item.id === targetId);
+        if (from >= 0 && to >= 0) {
+          const [moved] = assets.splice(from, 1);
+          assets.splice(to, 0, moved);
+          state.assets = assets;
+          renderAssets();
+          renderMaterialBoard();
+          saveCanvas();
+          setStatus('素材顺序已调整');
+        }
+      }
+      return;
+    }
+    const files = await filesFromDataTransfer(event.dataTransfer);
+    if (!files.length) {
+      setStatus('没有识别到图片、视频或音频文件');
+      return;
+    }
+    uploadFilesToAssets(files, 'auto');
+  });
+
+  document.addEventListener('click', event => {
+    const materialAction = event.target.closest('[data-material-action]');
+    if (materialAction) {
+      event.preventDefault();
+      const asset = (state.assets || []).find(item => item.id === materialAction.dataset.materialId);
+      hideMaterialContextMenu();
+      if (!asset) return;
+      activateCanvasMode(state.mode);
+      addAssetNodeToCanvas(asset);
+      render();
+      saveCanvas();
+      return;
+    }
+    if (!event.target.closest('.material-action-menu')) hideMaterialContextMenu();
+    const actionBtn = event.target.closest('[data-project-action]');
+    if (!actionBtn) {
+      if (!event.target.closest('.project-action-menu') && !event.target.closest('[data-project-menu]')) hideProjectMenu();
+      return;
+    }
+    event.preventDefault();
+    const projectId = actionBtn.dataset.projectId;
+    const action = actionBtn.dataset.projectAction;
+    hideProjectMenu();
+    if (action === 'detail') projectDetail(projectId);
+    if (action === 'rename') renameProject(projectId);
+    if (action === 'move') setStatus('移动至文件夹功能稍后接入');
+    if (action === 'delete') deleteProject(projectId);
+  });
+
+  document.querySelectorAll('[data-close-asset-dialog]').forEach(btn => {
+    btn.addEventListener('click', closeAssetDialog);
+  });
+
+  document.querySelector('[data-confirm-asset]')?.addEventListener('click', () => {
+    if (!state.assetDraftNodeId) return closeAssetDialog();
+    addAssetFromNode(state.assetDraftNodeId, {
+      name: els.assetName?.value?.trim() || '我的资产',
+      category: els.assetCategory?.value || 'person',
     });
+    closeAssetDialog();
   });
 
   document.querySelectorAll('[data-asset-filter]').forEach(btn => {
@@ -2578,6 +4276,45 @@ function bindEvents() {
       state.assetFilter = btn.dataset.assetFilter;
       renderAssets();
     });
+    btn.addEventListener('dragover', event => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      btn.classList.add('drop-target');
+    });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drop-target'));
+    btn.addEventListener('drop', event => {
+      const nodeId = assetNodeIdFromDrop(event);
+      if (!nodeId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      btn.classList.remove('drop-target');
+      const category = btn.dataset.assetFilter === 'all' ? 'other' : btn.dataset.assetFilter;
+      addAssetFromNode(nodeId, { category });
+      document.querySelectorAll('[data-asset-filter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.assetFilter = btn.dataset.assetFilter;
+      renderAssets();
+    });
+  });
+
+  document.querySelector('.asset-tabs')?.addEventListener('dragover', event => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.querySelector('.asset-tabs')?.addEventListener('drop', event => {
+    const nodeId = assetNodeIdFromDrop(event);
+    if (!nodeId) return;
+    event.preventDefault();
+    const targetBtn = event.target.closest('[data-asset-filter]') || document.querySelector(`[data-asset-filter="${state.assetFilter}"]`);
+    const category = targetBtn?.dataset.assetFilter && targetBtn.dataset.assetFilter !== 'all'
+      ? targetBtn.dataset.assetFilter
+      : 'other';
+    addAssetFromNode(nodeId, { category });
+    document.querySelectorAll('[data-asset-filter]').forEach(b => b.classList.remove('active', 'drop-target'));
+    targetBtn?.classList.add('active');
+    state.assetFilter = targetBtn?.dataset.assetFilter || category;
+    renderAssets();
   });
 
   els.historyList?.addEventListener('click', event => {
@@ -2663,51 +4400,95 @@ function selectedNode() {
 function toggleMaximizeSelectedNode() {
   const node = selectedNode();
   if (!node) {
-    setStatus('Select a node first');
+    setStatus('请先选中一个节点');
     return;
   }
   if (node.maximizedFrom) {
-    Object.assign(node, node.maximizedFrom);
+    const previous = node.maximizedFrom;
+    Object.assign(node, {
+      x: previous.x,
+      y: previous.y,
+      w: previous.w,
+      h: previous.h,
+      fullscreenPreview: previous.fullscreenPreview,
+    });
+    if (previous.view) {
+      state.scale = previous.view.scale;
+      state.pan = { ...previous.view.pan };
+    }
     delete node.maximizedFrom;
     render();
+    applyTransform();
     saveCanvas();
-    setStatus('Node restored');
+    setStatus('节点已还原');
     return;
   }
   const rect = els.stage.getBoundingClientRect();
-  const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  const targetW = Math.min(920, Math.max(520, Math.round((rect.width / state.scale) * 0.72)));
-  const targetH = Math.min(680, Math.max(340, Math.round((rect.height / state.scale) * 0.72)));
+  const targetW = Math.max(640, Math.round(rect.width * 0.94));
+  const targetH = Math.max(420, Math.round(rect.height * 0.9));
   node.maximizedFrom = {
     x: node.x,
     y: node.y,
     w: node.w,
     h: node.h,
+    fullscreenPreview: !!node.fullscreenPreview,
+    view: {
+      scale: state.scale,
+      pan: { ...state.pan },
+    },
   };
+  state.scale = 1;
   node.w = targetW;
-  node.h = isGeneratorType(node.type)
-    ? previewHeightForNode(node)
-    : shouldKeepImageRatio(node)
-      ? imageNodeHeight(node)
-      : targetH;
-  node.x = center.x - node.w / 2;
-  node.y = center.y - node.h / 2;
+  node.h = targetH;
+  node.fullscreenPreview = true;
+  node.x = Math.round((rect.width - node.w) / 2);
+  node.y = Math.round((rect.height - node.h) / 2);
   updateGroupsForMembers([node.id]);
   render();
+  focusNode(node.id);
   saveCanvas();
-  setStatus('Node maximized');
+  setStatus('节点已全屏最大化');
 }
 
 function focusSelectedNode() {
   const node = selectedNode();
   if (!node) {
-    setStatus('Select a node first');
+    setStatus('请先选中一个节点');
     return;
   }
   state.scale = Math.min(2.2, Math.max(1.15, state.scale * 1.08));
   focusNode(node.id);
   saveCanvas();
-  setStatus('Node centered');
+  setStatus('节点已放到中心');
+}
+
+function fitAllNodes() {
+  const nodes = state.nodes.filter(node => node.type !== 'group');
+  if (!nodes.length) {
+    state.scale = 1;
+    state.pan = { x: -49800, y: -49800 };
+    applyTransform();
+    setStatus('画布已回到中心');
+    return;
+  }
+  const rect = els.stage.getBoundingClientRect();
+  const bounds = boundsForNodes(nodes);
+  const margin = 80;
+  const contentW = Math.max(1, bounds.maxX - bounds.minX);
+  const contentH = Math.max(1, bounds.maxY - bounds.minY);
+  const scaleX = (rect.width - margin * 2) / contentW;
+  const scaleY = (rect.height - margin * 2) / contentH;
+  state.scale = Math.max(0.12, Math.min(1.6, scaleX, scaleY));
+  const centerX = bounds.minX + contentW / 2;
+  const centerY = bounds.minY + contentH / 2;
+  state.pan = {
+    x: rect.width / 2 - centerX * state.scale,
+    y: rect.height / 2 - centerY * state.scale,
+  };
+  applyTransform();
+  renderLinks();
+  saveCanvas();
+  setStatus(`已展示全部 ${nodes.length} 个节点`);
 }
 
 function selectAllNodes() {
@@ -2735,7 +4516,10 @@ function boundsForNodes(nodes) {
 }
 
 function arrangeSelectedNodes() {
-  const nodes = selectedRealNodes();
+  const selected = selectedRealNodes();
+  const nodes = selected.length > 1
+    ? selected
+    : state.nodes.filter(n => n.type !== 'group');
   if (nodes.length < 2) return;
   const bounds = boundsForNodes(nodes);
   const gap = 34;
@@ -2751,7 +4535,8 @@ function arrangeSelectedNodes() {
   updateGroupsForMembers(nodes.map(n => n.id));
   render();
   saveCanvas();
-  setStatus(`Arranged ${nodes.length} nodes`);
+  fitAllNodes();
+  setStatus(`已整理 ${nodes.length} 个节点`);
 }
 
 function groupSelectedNodes() {
@@ -2870,12 +4655,15 @@ function finishSelection(clientX, clientY) {
 
 async function init() {
   await loadConfig();
+  loadGridSettings();
+  loadPromptPresets();
   applyTransform();
   bindEvents();
   loadCanvas();
   resumeNodeTasks();
   render();
   setInterval(pollTasks, 5000);
+  setInterval(refreshBalances, 60000);
   pollTasks();
 }
 
