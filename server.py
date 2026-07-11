@@ -86,6 +86,13 @@ DEFAULT_CONFIG = {
             "returnLastFrame": False,
             "webSearch": False,
         },
+        "agent": {
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKey": "",
+            "modelName": "gpt-4.1-mini",
+            "visionModel": "gpt-4.1-mini",
+            "promptModel": "deepseek-chat",
+        },
     },
     "models": {
         "video": ["doubao-seedance-2-0-260"],
@@ -126,6 +133,7 @@ def normalize_config(config: dict) -> None:
     apis.setdefault("ark", {})
     apis.setdefault("i2i", {})
     apis.setdefault("multimodal", {})
+    apis.setdefault("agent", {})
     defaults = config.setdefault("defaults", {})
     models = config.setdefault("models", {})
     models["video"] = [ark.get("modelName") or "doubao-seedance-2-0-260"]
@@ -165,6 +173,12 @@ def normalize_config(config: dict) -> None:
     multimodal.setdefault("watermark", False)
     multimodal.setdefault("returnLastFrame", False)
     multimodal.setdefault("webSearch", False)
+    agent = apis["agent"]
+    agent.setdefault("baseUrl", "https://api.openai.com/v1")
+    agent.setdefault("apiKey", "")
+    agent.setdefault("modelName", "gpt-4.1-mini")
+    agent.setdefault("visionModel", "gpt-4.1-mini")
+    agent.setdefault("promptModel", "deepseek-chat")
 
 
 def deep_merge(base: dict, patch: dict) -> dict:

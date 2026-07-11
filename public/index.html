@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Canvas Studio</title>
-  <link rel="stylesheet" href="/styles.css?v=202607067">
+  <link rel="stylesheet" href="/styles.css?v=202607112">
 </head>
 <body>
   <div id="app">
@@ -20,6 +20,10 @@
       <button id="settingsToggle" class="rail-item" title="设置">
         <span>⚙</span>
         <em>设置</em>
+      </button>
+      <button class="rail-item" data-tab="tools" title="模板">
+        <span>◫</span>
+        <em>模板</em>
       </button>
     </aside>
 
@@ -41,7 +45,7 @@
         <div id="historyList" class="history-list"></div>
       </section>
 
-      <div class="hint">右键画布可添加节点、上传素材。拖拽空白处移动画布，滚轮缩放。</div>
+      <section class="side-tab" data-panel="tools"></section>
     </aside>
 
     <main class="stage-wrap">
@@ -51,17 +55,31 @@
           <button data-mode="i2i">本地素材</button>
           <button data-mode="t2v">提示词预设</button>
           <button data-mode="i2v">爆款克隆</button>
+          <button data-mode="talking">口播智能体</button>
+          <button data-mode="commonTools">常用工具</button>
         </div>
         <div class="designer-balance">
           <span class="designer-info">设计师：王黎光 VX 13679166735</span>
-          <span class="balance-pill image-balance">生图余额 <b id="imageBalance">¥ --</b></span>
-          <span class="balance-pill video-balance">视频余额 <b id="videoBalance">¥ --</b></span>
+          <a class="creator-link bili" href="https://space.bilibili.com/520302223?spm_id_from=333.1007.0.0" target="_blank" rel="noreferrer">
+            <span class="creator-logo" aria-hidden="true">B</span>
+            <span>B站主页</span>
+          </a>
+          <a class="creator-link douyin" href="https://www.douyin.com/user/self?from_tab_name=main" target="_blank" rel="noreferrer">
+            <span class="creator-logo" aria-hidden="true">♪</span>
+            <span>抖音主页</span>
+          </a>
         </div>
         <div class="status" id="status">就绪</div>
+        <div class="volc-billing">
+          <a class="volc-balance" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎账户总览查看真实可用余额">
+            <span>火山可用余额</span>
+            <b>¥ --</b>
+          </a>
+          <a class="volc-recharge" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎官方充值页面">充值</a>
+        </div>
         <div class="top-actions">
           <button id="gridSettingsToggle" type="button" title="网格与连线设置">网格</button>
           <button data-action="fit">显示全部</button>
-          <button data-action="save">保存画布</button>
           <button data-action="clear">清空画布</button>
         </div>
       </div>
@@ -91,33 +109,46 @@
           <strong>创作智能体</strong>
           <span>配置大模型，让它帮你拆提示词、做图、跑流程</span>
         </div>
-        <button type="button" id="closeAgentDock">×</button>
+        <div class="agent-head-actions">
+          <button type="button" id="agentHistoryToggle" title="历史记录">◷</button>
+          <button type="button" id="closeAgentDock">×</button>
+        </div>
       </div>
-      <div class="agent-config">
-        <label>大模型</label>
-        <select id="agentModel">
-          <option>gpt-4.1</option>
-          <option>gpt-4o</option>
-          <option>doubao-pro</option>
-        </select>
-        <label>系统指令</label>
-        <textarea id="agentSystemPrompt" placeholder="例如：你是一个视频导演，负责把素材拆成可执行工作流。"></textarea>
+      <div id="agentHistoryPanel" class="agent-history-panel hidden"></div>
+      <div id="agentWorkspace" class="agent-workspace">
+        <div id="agentLog" class="agent-log"></div>
       </div>
       <div class="agent-chatbar">
         <div class="agent-upload-strip">
           <button type="button" id="agentUploadButton" title="添加参考图">+</button>
           <div id="agentRefs" class="agent-refs"></div>
         </div>
+        <div id="agentRefMention" class="agent-ref-mention hidden"></div>
         <textarea id="agentInput" placeholder="先上传参考图，再用 @ 引用，输入你的想法。"></textarea>
         <div class="agent-command-row">
-          <button type="button" class="agent-mode-button">✣ Agent</button>
-          <button type="button" class="agent-tool-button">@</button>
-          <button type="button" class="agent-tool-button">□</button>
-          <select id="agentAskMode">
-            <option>Ask</option>
-            <option>Auto</option>
-            <option>Plan</option>
+          <div class="agent-run-mode" id="agentAskMode">
+            <button type="button" class="active" data-agent-run="ask">Ask</button>
+            <button type="button" data-agent-run="auto">Auto</button>
+            <button type="button" data-agent-run="plan">Plan</button>
+          </div>
+          <select id="agentModel" class="agent-model-inline" title="智能体大模型">
+            <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+            <option value="gpt-4o-mini">GPT-4o mini</option>
+            <option value="doubao-pro">豆包 Pro</option>
+            <option value="qwen-max">通义千问 Max</option>
+            <option value="deepseek-chat">DeepSeek Chat</option>
           </select>
+          <div class="agent-skill-picker">
+            <button type="button" id="agentSkillToggle" class="agent-skill-toggle">✦ 加载 Skill</button>
+            <div id="agentSkillMenu" class="agent-skill-menu hidden">
+              <button type="button" draggable="true" data-agent-skill="auto"><b>自动选择</b><span>根据任务自动挑选能力</span></button>
+              <button type="button" draggable="true" data-agent-skill="seedance2-15s-prompt"><b>Seedance2 提示词</b><span>15秒视频分镜和电影镜头</span></button>
+              <button type="button" draggable="true" data-agent-skill="imagegen"><b>图像生成 / 改图</b><span>生成图像、编辑图像、风格化</span></button>
+              <button type="button" draggable="true" data-agent-skill="xyq-skill"><b>小云雀创作</b><span>图片、视频、短片创作</span></button>
+              <button type="button" draggable="true" data-agent-skill="browser"><b>页面分析</b><span>网页资料整理和页面理解</span></button>
+              <button type="button" draggable="true" data-agent-skill="custom"><b>自定义 Skill</b><span>拖入输入框后自行补充指令</span></button>
+            </div>
+          </div>
           <button type="button" class="agent-send">↑</button>
         </div>
       </div>
@@ -129,8 +160,15 @@
           <h2>接口与模型设置</h2>
           <button id="closeSettings">关闭</button>
         </div>
+        <div class="settings-tabs">
+          <button type="button" class="active" data-settings-tab="ark">火山视频</button>
+          <button type="button" data-settings-tab="image">生图模型</button>
+          <button type="button" data-settings-tab="i2i">图生图</button>
+          <button type="button" data-settings-tab="multi">多参模块</button>
+          <button type="button" data-settings-tab="agent">智能体</button>
+        </div>
         <div class="settings-grid">
-          <div class="settings-video-ark">
+          <div class="settings-video-ark active" data-settings-panel="ark">
             <h3 class="settings-provider-title">
               <label><input type="radio" name="videoProvider" id="providerArk" value="ark" checked> 火山算力</label>
             </h3>
@@ -141,7 +179,7 @@
             <label>ARK_MODEL <span class="required">*</span></label>
             <input id="arkModel" placeholder="doubao-seedance-2-0-260">
           </div>
-          <div class="settings-image-standard">
+          <div class="settings-image-standard" data-settings-panel="image">
             <h3 class="settings-provider-title">
               <label><input type="radio" name="imageSettingsMode" id="imageModeStandard" value="standard"> 生图模型</label>
             </h3>
@@ -158,7 +196,7 @@
             <label>生图模型名</label>
             <input id="imageModels">
           </div>
-          <div class="settings-i2i">
+          <div class="settings-i2i" data-settings-panel="i2i">
             <h3 class="settings-provider-title">
               <label><input type="radio" name="imageSettingsMode" id="imageModeI2i" value="i2i"> 图生图模型</label>
             </h3>
@@ -180,7 +218,7 @@
             <input id="i2iReferenceField" class="hidden-field" type="hidden" value="image">
             <textarea id="i2iIdentityPrompt" class="hidden-field" rows="1"></textarea>
           </div>
-          <div class="settings-multimodal">
+          <div class="settings-multimodal" data-settings-panel="multi">
             <h3 class="settings-provider-title">
               <label>多参模块</label>
             </h3>
@@ -204,6 +242,9 @@
               <div>
                 <label>分辨率</label>
                 <select id="multiResolution">
+                  <option>480p</option>
+                  <option>720p</option>
+                  <option>1080p</option>
                   <option>4K</option>
                 </select>
               </div>
@@ -239,6 +280,25 @@
               <label><input id="multiWebSearch" type="checkbox"> 联网搜索</label>
             </div>
           </div>
+          <div class="settings-agent" data-settings-panel="agent">
+            <h3 class="settings-provider-title">
+              <label>智能体模型</label>
+            </h3>
+            <p class="settings-note settings-note-right">OpenAI 兼容接口，用来理解资产、拆工作流、改写提示词。</p>
+            <label>Agent API 地址</label>
+            <input id="agentBaseUrl" placeholder="https://api.openai.com/v1">
+            <label>Agent API Key</label>
+            <div class="secret-row">
+              <input id="agentApiKey" type="password">
+              <button type="button" data-toggle-secret="#agentApiKey">显示</button>
+            </div>
+            <label>工作流模型</label>
+            <input id="agentModelName" placeholder="gpt-4.1-mini">
+            <label>图像理解模型</label>
+            <input id="agentVisionModel" placeholder="gpt-4.1-mini">
+            <label>提示词改写模型</label>
+            <input id="agentPromptModel" placeholder="deepseek-chat">
+          </div>
         </div>
         <button id="saveSettings" class="primary">保存设置</button>
       </div>
@@ -246,21 +306,52 @@
 
     <div id="menu" class="context-menu hidden">
       <div class="menu-title" id="menuTitle">添加节点</div>
-      <button data-menu="text">文本</button>
-      <button data-menu="upload">上传</button>
+      <button data-menu="text" data-icon="T">文本</button>
+      <button data-menu="upload" data-icon="↥">上传</button>
       <div class="sep"></div>
-      <button data-menu="t2i">文生图节点</button>
-      <button data-menu="i2i">图生图节点</button>
-      <button data-menu="t2v">文生视频</button>
-      <button data-menu="i2v">图生视频</button>
-      <button data-menu="director">导演台</button>
-      <button data-menu="compare">对比节点</button>
+      <div class="menu-sub">
+        <button type="button" class="menu-sub-trigger" data-icon="▣">功能节点 ›</button>
+        <div class="menu-sub-panel">
+          <button data-menu="t2i" data-icon="▧">文生图节点</button>
+          <button data-menu="i2i" data-icon="◫">图生图节点</button>
+          <button data-menu="t2v" data-icon="▰">文生视频</button>
+          <button data-menu="i2v" data-icon="▱">图生视频</button>
+          <button data-menu="loop" data-icon="∞">循环节点</button>
+        </div>
+      </div>
+      <button data-menu="director" data-icon="◎">导演台</button>
+      <button data-menu="compare" data-icon="↔">对比节点</button>
+      <div class="menu-sub">
+        <button type="button" class="menu-sub-trigger" data-icon="↺">反推 ›</button>
+        <div class="menu-sub-panel">
+          <button data-menu="reverse-image" data-icon="☷">图像反推提示词</button>
+          <button data-menu="reverse-video" data-icon="▶">视频反推提示词</button>
+        </div>
+      </div>
       <div class="sep image-node-menu"></div>
-      <button class="image-node-menu" data-menu="add-asset">加入资产</button>
+      <button class="image-node-menu" data-menu="add-asset" data-icon="+">加入资产</button>
       <div class="sep"></div>
-      <button data-menu="arrange">整理节点</button>
+      <button data-menu="arrange" data-icon="▦">整理节点</button>
       <div class="sep selected-menu"></div>
-      <button class="selected-menu" data-menu="group">打组</button>
+      <button class="selected-menu" data-menu="group" data-icon="□">打组</button>
+    </div>
+
+    <div id="hotbox" class="maya-hotbox hidden" aria-label="空格热键菜单">
+      <div class="hotbox-center">热键盘</div>
+      <div class="hotbox-grid">
+        <button data-hotbox-menu="text">文本</button>
+        <button data-hotbox-menu="upload">上传</button>
+        <button data-hotbox-menu="t2i">文生图</button>
+        <button data-hotbox-menu="i2i">图生图</button>
+        <button data-hotbox-menu="t2v">文生视频</button>
+        <button data-hotbox-menu="i2v">图生视频</button>
+        <button data-hotbox-menu="loop">循环</button>
+        <button data-hotbox-menu="director">导演台</button>
+        <button data-hotbox-menu="compare">对比</button>
+        <button data-hotbox-menu="arrange">整理</button>
+        <button data-hotbox-menu="reverse-image">图像反推</button>
+        <button data-hotbox-menu="reverse-video">视频反推</button>
+      </div>
     </div>
 
     <section id="assetDialog" class="asset-dialog hidden">
@@ -298,53 +389,169 @@
       <header class="director-stage-head">
         <strong>3D导演台</strong>
         <div class="director-view-tabs">
-          <button class="active">导演视角</button>
-          <button>机位视角</button>
+          <button class="active" data-director-view="third">第三视角</button>
+          <button data-director-view="camera">相机视角</button>
         </div>
         <div class="director-stage-actions">
+          <button type="button" data-director-snapshot>截屏到画布</button>
           <button type="button" title="帮助">?</button>
           <button type="button" id="closeDirectorStage">×</button>
         </div>
       </header>
       <aside class="director-left">
-        <h3>场景</h3>
-        <input placeholder="请输入搜索内容">
-        <button class="active">▣ 机位1</button>
-        <button>♙ 角色A</button>
+        <div class="director-side-head">
+          <h3>对象库</h3>
+          <span>角色 / 场景 / 模型</span>
+        </div>
+        <input class="director-search" placeholder="搜索预设或对象">
+        <div class="director-library">
+          <label>创建</label>
+          <button data-director-create="actor">+ 创建角色</button>
+          <button data-director-create="scene">+ 创建场景</button>
+          <button data-director-open-library>+ 打开三维预设库</button>
+          <label>人物预设</label>
+          <button data-director-preset="商务男">商务男 · 3D</button>
+          <button data-director-preset="年轻女性">年轻女性 · 3D</button>
+          <button data-director-preset="中年角色">中年角色 · 3D</button>
+          <button data-director-preset="机器人">机器人 · 3D</button>
+          <label>场景预设</label>
+          <button data-director-scene="摄影棚">摄影棚</button>
+          <button data-director-scene="办公室">办公室</button>
+          <button data-director-scene="城市街道">城市街道</button>
+          <button data-director-scene="竹林">竹林</button>
+        </div>
       </aside>
       <main class="director-viewport">
         <div class="director-axis-widget"><i></i><b></b><em></em><span></span><button>重置视角</button></div>
-        <div class="director-3d-world">
-          <div class="director-3d-grid"></div>
-          <div class="director-camera-frame"></div>
-          <div class="director-avatar">
-            <strong>角色A</strong>
-            <i></i>
-            <span></span>
-            <b class="axis-x"></b>
-            <b class="axis-y"></b>
-            <b class="axis-z"></b>
-          </div>
+        <div class="director-viewport-label">
+          <b id="directorViewLabel">第三视角</b>
+          <span>拖拽模拟旋转视图，底部切换移动 / 旋转 / 缩放</span>
+        </div>
+        <div class="director-3d-world" id="director3dCanvasHost">
+          <div class="director-3d-loading">正在加载真实 3D 导演台...</div>
         </div>
         <div class="director-toolbar">
-          <button>⌁</button><button>♙</button><button>视</button><button>▣</button><button>⌗</button><button>▤</button><button>↗</button><button class="active">▱</button><button>⟳</button>
+          <button class="active" data-director-tool="move" title="移动 W">↔<small>W</small></button>
+          <button data-director-tool="rotate" title="旋转 E">⟳<small>E</small></button>
+          <button data-director-tool="scale" title="缩放 R">□<small>R</small></button>
+          <span></span>
+          <button data-director-create="actor" title="添加角色">♙</button>
+          <button data-director-create="scene" title="添加场景">▣</button>
+          <button data-director-create="model" title="添加模型">▤</button>
+          <span></span>
+          <button data-director-view="third" title="第三视角">视</button>
+          <button data-director-view="camera" title="相机视角">机</button>
+          <button data-director-reset title="复位">⌂</button>
+          <button data-director-snapshot title="截屏到画布">▧</button>
         </div>
       </main>
       <aside class="director-right">
-        <h3>角色</h3>
-        <div class="director-tabs"><button class="active">属性</button><button>姿势</button></div>
-        <label>名称<input value="角色A"></label>
-        <label>位置</label>
-        <div class="director-triplet"><input value="X 0"><input value="Y 0"><input value="Z 0"></div>
-        <label>旋转</label>
-        <div class="director-triplet"><input value="X 0"><input value="Y 0"><input value="Z 0"></div>
-        <label>缩放</label>
-        <div class="director-triplet"><input value="X 1.03"><input value="Y 1.03"><input value="Z 1.03"></div>
-        <label>统一缩放</label>
-        <input type="range" value="1" min=".2" max="2" step=".01">
-        <label>颜色</label>
-        <div class="director-color"><i></i><input value="#4F8EF7"></div>
+        <h3>属性面板</h3>
+        <div class="director-tabs">
+          <button class="active" data-director-tab="attr">属性</button>
+          <button data-director-tab="pose">姿势</button>
+        </div>
+        <div class="director-active-object">
+          <span>当前对象</span>
+          <b id="directorActiveName">商务男</b>
+        </div>
+        <div class="director-object-list" id="directorObjectList" hidden>
+          <button class="active" data-director-object="商务男">♙ 商务男 <span>站立</span></button>
+          <button data-director-object="机位1">▣ 机位1 <span>第三视角</span></button>
+          <button data-director-object="摄影棚">▤ 摄影棚 <span>场景</span></button>
+        </div>
+        <div class="director-tab-panel active" data-director-panel="attr">
+          <label>名称<input id="directorObjectName" value="商务男"></label>
+          <label>位置</label>
+          <div class="director-triplet">
+            <input value="0" data-director-transform="position.x" aria-label="X">
+            <input value="0" data-director-transform="position.y" aria-label="Y">
+            <input value="0" data-director-transform="position.z" aria-label="Z">
+          </div>
+          <label>旋转</label>
+          <div class="director-triplet">
+            <input value="0" data-director-transform="rotation.x" aria-label="X">
+            <input value="0" data-director-transform="rotation.y" aria-label="Y">
+            <input value="0" data-director-transform="rotation.z" aria-label="Z">
+          </div>
+          <label>缩放</label>
+          <div class="director-triplet">
+            <input value="1" data-director-transform="scale.x" aria-label="X">
+            <input value="1" data-director-transform="scale.y" aria-label="Y">
+            <input value="1" data-director-transform="scale.z" aria-label="Z">
+          </div>
+          <label>统一缩放</label>
+          <div class="director-slider-row"><input type="range" value="1" min=".2" max="2" step=".01" data-director-uniform-scale><output>1.0</output></div>
+          <label>颜色</label>
+          <div class="director-color"><i></i><input value="#4F8EF7" data-director-color></div>
+        </div>
+        <div class="director-tab-panel" data-director-panel="pose">
+          <label>姿势预设</label>
+          <div class="director-pose-grid">
+            <button data-director-pose-preset="站立">站立</button>
+            <button data-director-pose-preset="T型">T型</button>
+            <button data-director-pose-preset="行走">行走</button>
+            <button data-director-pose-preset="跑步">跑步</button>
+            <button data-director-pose-preset="坐姿">坐姿</button>
+            <button data-director-pose-preset="蹲下">蹲下</button>
+            <button data-director-pose-preset="单膝跪">单膝跪</button>
+            <button data-director-pose-preset="双膝跪">双膝跪</button>
+            <button data-director-pose-preset="叉腰">叉腰</button>
+            <button data-director-pose-preset="倚靠">倚靠</button>
+            <button data-director-pose-preset="鞠躬">鞠躬</button>
+            <button data-director-pose-preset="思考">思考</button>
+            <button data-director-pose-preset="格斗">格斗</button>
+            <button data-director-pose-preset="踢球">踢球</button>
+            <button data-director-pose-preset="投掷">投掷</button>
+            <button data-director-pose-preset="推进">推进</button>
+            <button data-director-pose-preset="招手">招手</button>
+            <button data-director-pose-preset="伸手">伸手</button>
+            <button data-director-pose-preset="抱臂">抱臂</button>
+            <button data-director-pose-preset="看手机">看手机</button>
+          </div>
+          <label>姿势调节</label>
+          <div class="director-pose-controls">
+            <div><span>身体前倾</span><input type="range" min="-45" max="45" value="0" data-director-pose-control="bodyTilt"><output>0</output></div>
+            <div><span>转身</span><input type="range" min="-90" max="90" value="0" data-director-pose-control="bodyTurn"><output>0</output></div>
+            <div><span>侧倾</span><input type="range" min="-45" max="45" value="0" data-director-pose-control="bodySide"><output>0</output></div>
+            <div><span>头部点头</span><input type="range" min="-45" max="45" value="0" data-director-pose-control="headNod"><output>0</output></div>
+            <div><span>头部转向</span><input type="range" min="-60" max="60" value="0" data-director-pose-control="headTurn"><output>0</output></div>
+            <div><span>左臂</span><input type="range" min="-120" max="120" value="0" data-director-pose-control="leftArm"><output>0</output></div>
+            <div><span>右臂</span><input type="range" min="-120" max="120" value="0" data-director-pose-control="rightArm"><output>0</output></div>
+            <div><span>左腿</span><input type="range" min="-100" max="100" value="0" data-director-pose-control="leftLeg"><output>0</output></div>
+            <div><span>右腿</span><input type="range" min="-100" max="100" value="0" data-director-pose-control="rightLeg"><output>0</output></div>
+          </div>
+        </div>
       </aside>
+      <div id="directorPresetPanel" class="director-preset-panel hidden">
+        <div class="director-preset-head">
+          <strong>三维预设库</strong>
+          <button type="button" data-director-close-library>×</button>
+        </div>
+        <div class="director-preset-tabs">
+          <button class="active" data-director-library-tab="actor">角色</button>
+          <button data-director-library-tab="scene">场景</button>
+          <button data-director-library-tab="prop">服化道</button>
+        </div>
+        <div class="director-preset-grid active" data-director-library-panel="actor">
+          <button data-director-library-preset="actor:商务男"><i class="preset-thumb preset-business"></i><b>商务男</b><span>西装 / 职场 / 男性</span></button>
+          <button data-director-library-preset="actor:年轻女性"><i class="preset-thumb preset-woman"></i><b>年轻女性</b><span>都市 / 主角 / 女性</span></button>
+          <button data-director-library-preset="actor:中年角色"><i class="preset-thumb preset-middle"></i><b>中年角色</b><span>生活化 / 纪实</span></button>
+          <button data-director-library-preset="actor:机器人"><i class="preset-thumb preset-robot"></i><b>机器人</b><span>科幻 / 机械</span></button>
+        </div>
+        <div class="director-preset-grid" data-director-library-panel="scene">
+          <button data-director-library-preset="scene:摄影棚"><i class="preset-thumb preset-studio"></i><b>摄影棚</b><span>软箱灯 / 灰幕</span></button>
+          <button data-director-library-preset="scene:办公室"><i class="preset-thumb preset-office"></i><b>办公室</b><span>桌面 / 商务</span></button>
+          <button data-director-library-preset="scene:城市街道"><i class="preset-thumb preset-city"></i><b>城市街道</b><span>建筑 / 街景</span></button>
+          <button data-director-library-preset="scene:竹林"><i class="preset-thumb preset-bamboo"></i><b>竹林</b><span>武侠 / 自然</span></button>
+        </div>
+        <div class="director-preset-grid" data-director-library-panel="prop">
+          <button data-director-library-preset="prop:办公桌"><i class="preset-thumb preset-desk"></i><b>办公桌</b><span>商务道具</span></button>
+          <button data-director-library-preset="prop:手机"><i class="preset-thumb preset-phone"></i><b>手机</b><span>手持道具</span></button>
+          <button data-director-library-preset="prop:灯架"><i class="preset-thumb preset-light"></i><b>灯架</b><span>摄影器材</span></button>
+          <button data-director-library-preset="prop:箱体"><i class="preset-thumb preset-box"></i><b>箱体</b><span>场景道具</span></button>
+        </div>
+      </div>
     </section>
 
     <input id="fileInput" type="file" multiple accept="image/*,video/*,audio/*" hidden>
@@ -352,8 +559,18 @@
     <input id="videoInput" type="file" multiple accept="video/*" hidden>
     <input id="audioInput" type="file" multiple accept="audio/*" hidden>
     <input id="agentRefInput" type="file" multiple accept="image/*" hidden>
+    <input id="replaceImageInput" type="file" accept="image/*" hidden>
   </div>
-  <script src="/app.js?v=202607067"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+  </script>
+  <script src="/app.js?v=202607112"></script>
+  <script type="module" src="/director3d.js?v=202607112"></script>
 </body>
 </html>
 
