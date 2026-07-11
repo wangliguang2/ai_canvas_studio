@@ -72,7 +72,7 @@
         <div class="status" id="status">就绪</div>
         <div class="volc-billing">
           <a class="volc-balance" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎账户总览查看真实可用余额">
-            <span>火山可用余额</span>
+            <span>火山余额</span>
             <b>¥ --</b>
           </a>
           <a class="volc-recharge" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎官方充值页面">充值</a>
@@ -148,6 +148,7 @@
               <button type="button" draggable="true" data-agent-skill="browser"><b>页面分析</b><span>网页资料整理和页面理解</span></button>
               <button type="button" draggable="true" data-agent-skill="custom"><b>自定义 Skill</b><span>拖入输入框后自行补充指令</span></button>
             </div>
+            <input type="file" id="agentSkillFileInput" accept=".md,.markdown,.txt,.json,.yaml,.yml" multiple hidden>
           </div>
           <button type="button" class="agent-send">↑</button>
         </div>
@@ -316,9 +317,9 @@
           <button data-menu="i2i" data-icon="◫">图生图节点</button>
           <button data-menu="t2v" data-icon="▰">文生视频</button>
           <button data-menu="i2v" data-icon="▱">图生视频</button>
-          <button data-menu="loop" data-icon="∞">循环节点</button>
         </div>
       </div>
+      <button data-menu="loop" data-icon="∞">循环节点</button>
       <button data-menu="director" data-icon="◎">导演台</button>
       <button data-menu="compare" data-icon="↔">对比节点</button>
       <div class="menu-sub">
@@ -332,6 +333,14 @@
       <button class="image-node-menu" data-menu="add-asset" data-icon="+">加入资产</button>
       <div class="sep"></div>
       <button data-menu="arrange" data-icon="▦">整理节点</button>
+      <div class="menu-sub">
+        <button type="button" class="menu-sub-trigger" data-icon="▦">布局 ›</button>
+        <div class="menu-sub-panel">
+          <button data-menu="layout-grid" data-icon="▦">宫格布局</button>
+          <button data-menu="layout-horizontal" data-icon="▭">水平布局</button>
+          <button data-menu="layout-vertical" data-icon="▯">垂直布局</button>
+        </div>
+      </div>
       <div class="sep selected-menu"></div>
       <button class="selected-menu" data-menu="group" data-icon="□">打组</button>
     </div>

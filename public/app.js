@@ -42,6 +42,7 @@
   agentMode: 'agent',
   agentRunMode: 'ask',
   agentSkill: 'auto',
+  customSkills: [],
   cloneStudio: {
     sourceUrl: '',
     videoUrl: '',
@@ -58,8 +59,10 @@
     topics: '',
     audioUrl: '',
     audioName: '',
+    presetAudio: '',
     avatarUrl: '',
     avatarName: '',
+    presetAvatar: '',
     tone: 'normal',
     speed: '1.0',
   },
@@ -130,6 +133,7 @@ const els = {
   agentModeMenu: document.querySelector('#agentModeMenu'),
   agentSkillToggle: document.querySelector('#agentSkillToggle'),
   agentSkillMenu: document.querySelector('#agentSkillMenu'),
+  agentSkillFileInput: document.querySelector('#agentSkillFileInput'),
   model: document.querySelector('#model'),
   ratio: document.querySelector('#ratio'),
   duration: document.querySelector('#duration'),
@@ -158,13 +162,40 @@ const typeNames = {
   compare: '对比节点',
   browser: '浏览器',
   loop: '循环节点',
+  grid: '分镜格子',
 };
 
 const DETAIL_PAGE_LOOP_PROMPT = '电商详情页高转化商业图，严格保留参考主体的核心身份、产品外观、材质、颜色、比例和关键卖点；生成适合详情页使用的高质感视觉模块，主体清晰居中，背景干净高级，棚拍柔光，真实材质纹理，轻微反射，构图稳定，有留白空间，可用于产品介绍、卖点展示、场景化海报和详情页长图。不要乱改品牌、文字、logo、人物五官或产品结构，不要水印，不要多余杂物。';
+const GLOBAL_ASSETS_KEY = 'ai_canvas_global_assets';
+const CUSTOM_SKILLS_KEY = 'ai_canvas_custom_agent_skills';
+
+const AGENT_BUILTIN_SKILLS = [
+  ['auto', '自动选择', '根据任务自动挑选能力'],
+  ['seedance2-15s-prompt', 'Seedance2 提示词', '15秒视频分镜和电影镜头'],
+  ['imagegen', '图像生成 / 改图', '生成图像、编辑图像、风格化'],
+  ['xyq-skill', '小云雀创作', '图片、视频、短片创作'],
+  ['browser', '页面分析', '网页资料整理和页面理解'],
+];
+
+const TALKING_PRESET_AUDIOS = [
+  ['zhenhuan-mp3', '甄嬛.MP3'],
+  ['sweet-female-flac', '甜美女声.flac'],
+  ['mature-female-flac', '成熟女性.flac'],
+  ['sister-flac', '御姐音.flac'],
+  ['bright-female-flac', '开朗女性.flac'],
+  ['young-news-male-flac', '年轻新闻男.flac'],
+];
+
+const TALKING_PRESET_AVATARS = [
+  ['slot-1', '预设数字人 1（待上传）'],
+  ['slot-2', '预设数字人 2（待上传）'],
+  ['business-male', '商务男口播（待上传）'],
+  ['business-female', '商务女口播（待上传）'],
+];
 
 const IMAGE_UTILITY_PROMPTS = {
   characterSheet: '提取原图角色，制作标准角色设定图，画面分区排版，完整呈现人物正面、侧面、背面三视图、脸部高清特写、服饰细节特写；人体结构标准精准，五官清晰，服饰纹理、版型、配饰细节完整，构图工整规整，高清画质，专业角色原画，画面干净无杂物',
-  nineGrid: '保持主体人物面部，服装特征或者场景细节特征，光影不变，生成九个角度不同景别各异的九宫格',
+  nineGrid: '分镜创作逻辑：1. 若提供文案主题，将【文案主题】作为叙事核心，结合【图像核心内容】与以参考图为主体，还原环境空间布局，保持人物与所有物品相对位置，多角度连贯叙事，符合剧情逻辑设计3x3分镜；2. 若未提供文案主题，仅以【图像核心内容】为主体，遵循以参考图为主体，还原环境空间布局，保持人物与所有物品相对位置，多角度连贯叙事，符合剧情逻辑设计分镜。AI自动规划9个差异化视角，覆盖全景（环境空间布局）、中景（主体关系呈现）、特写（细节质感突出）、仰拍（视觉冲击强化）、俯拍（空间层次展示）、动态镜头（运动轨迹捕捉）、侧拍（侧面细节呈现）、近景（主体状态聚焦）、远景（整体氛围烘托）共9类最优构图，严格还原物体相对位置，保持分镜叙事连贯性与视觉统一性，4K极致超高清分辨率，原生细节拉满，电影级工业级光影，物理级光线反射与折射，自然明暗渐变过渡，超写实级材质纹理（金属/织物/植被/岩石/皮肤）清晰无失真，无磨皮过度锐化，符合人眼真实视觉逻辑，浅景深虚化过渡自然，专业影视级布光，单反相机85mm/35mm黄金焦段拍摄，动态范围拉满，暗部亮部细节保留完整，严格对齐参考图核心美术风格（写实/二次元/赛博朋克/古风/废土/极简等），严格保持统一美术风格，横屏16:9黄金比例构图，分镜间无缝拼接无割裂感，画面无文字水印/时间码/字幕，色彩体系统一（色调/饱和度/色温一致），无时间码无字幕',
   paintNote: '在原图基础上添加专业绘画注释，保留原图主体身份、五官、服饰和构图，在画面周围加入清晰的绘画分析标注、结构线、光影说明、色彩说明、服装材质说明和关键细节箭头，排版干净专业，像角色设计讲解稿',
 };
 
@@ -428,17 +459,132 @@ function agentModeLabel(mode = state.agentMode) {
   }[mode] || '✣ Agent';
 }
 
+function normalizeCustomSkills(list = []) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter(item => item?.id && item?.name && item?.content)
+    .map(item => ({
+      id: String(item.id),
+      name: String(item.name),
+      desc: String(item.desc || '本地导入的自定义 Skill'),
+      content: String(item.content),
+      createdAt: Number(item.createdAt || Date.now()),
+    }))
+    .filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .slice(0, 40);
+}
+
+function loadCustomSkills() {
+  try {
+    state.customSkills = normalizeCustomSkills(JSON.parse(localStorage.getItem(CUSTOM_SKILLS_KEY) || '[]'));
+  } catch {
+    state.customSkills = [];
+  }
+}
+
+function saveCustomSkills() {
+  localStorage.setItem(CUSTOM_SKILLS_KEY, JSON.stringify(normalizeCustomSkills(state.customSkills)));
+}
+
+function readTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error(`${file.name} 读取失败`));
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
+function customSkillNameFromContent(file, content) {
+  try {
+    if (/\.json$/i.test(file.name)) {
+      const data = JSON.parse(content);
+      if (data.name || data.title) return String(data.name || data.title).trim();
+    }
+  } catch {
+    // JSON 解析失败时退回文件名。
+  }
+  const heading = content.match(/^\s*#\s+(.+)$/m)?.[1];
+  return (heading || file.name.replace(/\.(md|markdown|txt|json|ya?ml)$/i, '') || '自定义 Skill').trim();
+}
+
+function customSkillDescFromContent(content) {
+  const lines = String(content || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('#'));
+  return (lines[0] || '本地导入的自定义 Skill').slice(0, 42);
+}
+
+async function importCustomSkillFiles(files = []) {
+  const sourceFiles = [...files].filter(file => file && /\.(md|markdown|txt|json|ya?ml)$/i.test(file.name));
+  if (!sourceFiles.length) {
+    setStatus('请选择 .md / .txt / .json / .yaml 格式的 Skill 文件');
+    return;
+  }
+  const imported = [];
+  for (const file of sourceFiles) {
+    const content = await readTextFile(file);
+    const name = customSkillNameFromContent(file, content);
+    const item = {
+      id: `custom-skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      desc: customSkillDescFromContent(content),
+      content,
+      createdAt: Date.now(),
+    };
+    imported.push(item);
+  }
+  state.customSkills = normalizeCustomSkills([...imported, ...state.customSkills]);
+  saveCustomSkills();
+  renderAgentSkillMenu();
+  if (imported[0]) setAgentSkill(imported[0].id, { keepOpen: true });
+  setStatus(`已加载 ${imported.length} 个自定义 Skill`);
+}
+
+function customSkillById(id) {
+  return state.customSkills.find(item => item.id === id);
+}
+
+function agentSkillMeta(value = state.agentSkill) {
+  const builtin = AGENT_BUILTIN_SKILLS.find(([id]) => id === value);
+  if (builtin) return { id: builtin[0], name: builtin[1], desc: builtin[2], builtin: true };
+  const custom = customSkillById(value);
+  if (custom) return { id: custom.id, name: custom.name, desc: custom.desc, content: custom.content, custom: true };
+  return { id: value || 'auto', name: value || '自动选择', desc: '根据任务自动挑选能力' };
+}
+
 function agentSkillLabel(value = state.agentSkill) {
-  return {
-    auto: '加载 Skill',
-    'seedance2-15s-prompt': 'Seedance2 15秒视频提示词',
-    imagegen: '图像生成 / 改图',
-    'xyq-skill': '小云雀图片视频创作',
-    browser: '浏览器检索与页面分析',
-    github: 'GitHub 项目操作',
-    netlify: 'Netlify 部署',
-    custom: '自定义 Skill 指令',
-  }[value] || value || '自动选择合适 Skill';
+  return agentSkillMeta(value).name || '自动选择合适 Skill';
+}
+
+function renderAgentSkillMenu() {
+  if (!els.agentSkillMenu) return;
+  const builtinHTML = AGENT_BUILTIN_SKILLS.map(([id, name, desc]) => `
+    <button type="button" draggable="true" data-agent-skill="${escapeAttr(id)}">
+      <b>${escapeHtml(name)}</b><span>${escapeHtml(desc)}</span>
+    </button>
+  `).join('');
+  const customHTML = state.customSkills.map(item => `
+    <button type="button" draggable="true" data-agent-skill="${escapeAttr(item.id)}">
+      <b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.desc)}</span>
+    </button>
+  `).join('');
+  els.agentSkillMenu.innerHTML = `
+    ${builtinHTML}
+    ${customHTML ? '<div class="agent-skill-divider"></div>' : ''}
+    ${customHTML}
+    <button type="button" class="agent-skill-load" data-agent-skill-load>
+      <b>自定义 Skill</b><span>从本地选择 .md / .txt / .json 等 Skill 文件</span>
+    </button>
+  `;
+  document.querySelectorAll('[data-agent-skill]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.agentSkill === state.agentSkill);
+  });
 }
 
 function setAgentMode(mode) {
@@ -459,6 +605,7 @@ function setAgentRunMode(mode) {
 
 function setAgentSkill(skill = 'auto', options = {}) {
   state.agentSkill = skill || 'auto';
+  if (!agentSkillMeta(state.agentSkill).name) state.agentSkill = 'auto';
   document.querySelectorAll('[data-agent-skill]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.agentSkill === state.agentSkill);
   });
@@ -471,7 +618,11 @@ function setAgentSkill(skill = 'auto', options = {}) {
 }
 
 function agentSkillPrompt(skill = state.agentSkill) {
-  return `调用 Skill：${agentSkillLabel(skill)}\n目标：`;
+  const meta = agentSkillMeta(skill);
+  if (meta.custom && meta.content) {
+    return `调用自定义 Skill：${meta.name}\n\n${meta.content}\n\n目标：`;
+  }
+  return `调用 Skill：${meta.name}\n目标：`;
 }
 
 function insertIntoAgentInput(text) {
@@ -805,7 +956,6 @@ function canvasSnapshot() {
     pan: state.pan,
     scale: state.scale,
     generationHistory: state.generationHistory,
-    assets: state.assets,
   });
 }
 
@@ -816,8 +966,66 @@ function blankCanvasSnapshot() {
     pan: { x: -49800, y: -49800 },
     scale: 1,
     generationHistory: [],
-    assets: [],
   });
+}
+
+function normalizeAssetList(list = []) {
+  const seen = new Set();
+  const normalized = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    if (!item?.url) continue;
+    const key = item.url || item.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({
+      ...item,
+      id: item.id || uid('asset'),
+      name: item.name || item.title || '未命名资产',
+      title: item.title || item.name || '未命名资产',
+      category: item.category || 'other',
+      type: item.type || (String(item.mime || '').startsWith('video/') ? 'video' : String(item.mime || '').startsWith('audio/') ? 'audio' : 'image'),
+      createdAt: item.createdAt || Date.now(),
+    });
+  }
+  return normalized.slice(0, 300);
+}
+
+function saveAssetsStore() {
+  try {
+    localStorage.setItem(GLOBAL_ASSETS_KEY, JSON.stringify(normalizeAssetList(state.assets)));
+  } catch {
+    setStatus('资产库太大，本次资产保存被跳过');
+  }
+}
+
+function mergeAssetStore(list = []) {
+  const merged = normalizeAssetList([...(Array.isArray(list) ? list : []), ...(state.assets || [])]);
+  state.assets = merged;
+  saveAssetsStore();
+  return merged;
+}
+
+function loadAssetsStore() {
+  try {
+    state.assets = normalizeAssetList(JSON.parse(localStorage.getItem(GLOBAL_ASSETS_KEY) || '[]'));
+  } catch {
+    state.assets = [];
+  }
+}
+
+function mergeLegacyAssetsFromSnapshot(snapshot) {
+  try {
+    const data = typeof snapshot === 'string' ? JSON.parse(snapshot || '{}') : snapshot;
+    if (Array.isArray(data?.assets) && data.assets.length) mergeAssetStore(data.assets);
+  } catch {
+    // 老项目可能没有资产字段，忽略即可。
+  }
+}
+
+function mergeLegacyAssetsFromProjects(projects = state.projects) {
+  for (const project of Array.isArray(projects) ? projects : []) {
+    mergeLegacyAssetsFromSnapshot(project?.snapshot);
+  }
 }
 
 function loadProjectStore() {
@@ -894,6 +1102,21 @@ function savePromptCategories() {
   localStorage.setItem('ai_canvas_prompt_categories', JSON.stringify(promptCategoryList()));
 }
 
+function renamePromptCategory(categoryId = state.promptPresetFilter) {
+  if (!categoryId || categoryId === 'all') {
+    setStatus('“全部”是总入口，不能改名');
+    return;
+  }
+  const category = promptCategoryList().find(item => item.id === categoryId);
+  if (!category) return;
+  const label = prompt('分类名称', category.label || '新分类');
+  if (!label?.trim()) return;
+  category.label = label.trim();
+  savePromptCategories();
+  renderMaterialBoard();
+  setStatus(`分类已重命名：${category.label}`);
+}
+
 function hideDefaultPromptPreset(id) {
   const hidden = JSON.parse(localStorage.getItem('ai_canvas_hidden_default_presets') || '[]');
   if (!hidden.includes(id)) hidden.push(id);
@@ -965,12 +1188,12 @@ function persistCurrentProjectSnapshot(snapshot = canvasSnapshot()) {
 
 function restoreSnapshot(snapshot) {
   const data = JSON.parse(snapshot);
+  mergeLegacyAssetsFromSnapshot(data);
   state.nodes = (data.nodes || []).map(normalizeNode);
   state.links = data.links || [];
   state.pan = data.pan || state.pan;
   state.scale = data.scale || state.scale;
   state.generationHistory = data.generationHistory || [];
-  state.assets = data.assets || [];
   state.selectedId = null;
   state.selectedIds = [];
   state.selectedLinkId = null;
@@ -995,6 +1218,7 @@ function undoLast() {
 
 function saveCanvas() {
   const snapshot = canvasSnapshot();
+  saveAssetsStore();
   if (!state.restoring && state.lastSnapshot && snapshot !== state.lastSnapshot) {
     state.undoStack.push(state.lastSnapshot);
     state.undoStack = state.undoStack.slice(-80);
@@ -1010,19 +1234,21 @@ function saveCanvas() {
 }
 
 function loadCanvas() {
+  loadAssetsStore();
   const store = loadProjectStore();
   if (Array.isArray(store.projects) && store.projects.length) {
     state.projects = store.projects;
     state.currentProjectId = store.currentProjectId || store.projects[0].id;
+    mergeLegacyAssetsFromProjects(state.projects);
     const project = currentProject();
     if (project?.snapshot) {
       const data = JSON.parse(project.snapshot);
+      mergeLegacyAssetsFromSnapshot(data);
       state.nodes = (data.nodes || []).map(normalizeNode);
       state.links = data.links || [];
       state.pan = data.pan || state.pan;
       state.scale = data.scale || state.scale;
       state.generationHistory = data.generationHistory || [];
-      state.assets = data.assets || [];
       state.lastSnapshot = canvasSnapshot();
       render();
       applyTransform();
@@ -1044,12 +1270,12 @@ function loadCanvas() {
   }
   try {
     const data = JSON.parse(saved);
+    mergeLegacyAssetsFromSnapshot(data);
     state.nodes = (data.nodes || []).map(normalizeNode);
     state.links = data.links || [];
     state.pan = data.pan || state.pan;
     state.scale = data.scale || state.scale;
     state.generationHistory = data.generationHistory || [];
-    state.assets = data.assets || [];
     state.lastSnapshot = canvasSnapshot();
     ensureProjectStoreFromCurrent(state.lastSnapshot);
     render();
@@ -1086,11 +1312,11 @@ function imageRatioForNode(node) {
 }
 
 function shouldKeepImageRatio(node) {
-  return ['image', 'video'].includes(node?.type) && Number(node.imageRatio || node.naturalRatio || 0) > 0;
+  return ['image', 'video', 'grid'].includes(node?.type) && Number(node.imageRatio || node.naturalRatio || 0) > 0;
 }
 
 function imageNodeHeight(node) {
-  const headerH = ['image', 'video'].includes(node?.type) ? 28 : 32;
+  const headerH = ['image', 'video', 'grid'].includes(node?.type) ? 28 : 32;
   const mediaW = Math.max(80, node.w || 220);
   return headerH + Math.max(70, Math.round(mediaW / imageRatioForNode(node)));
 }
@@ -1102,12 +1328,36 @@ function imageDimensionsLabel(node) {
   return `${Math.round(w)} × ${Math.round(h)}`;
 }
 
+function imageFlipStyle(node) {
+  const x = node?.flipX ? -1 : 1;
+  const y = node?.flipY ? -1 : 1;
+  const yaw = Number(node?.angleYaw || 0);
+  const pitch = Number(node?.anglePitch || 0);
+  const zoom = Math.max(.55, Math.min(1.85, Number(node?.angleZoom || 1)));
+  const intensity = Math.max(0, Math.min(100, Number(node?.lightIntensity || 0)));
+  const transform = `transform: perspective(900px) rotateX(${pitch}deg) rotateY(${yaw}deg) scale(${x * zoom}, ${y * zoom});`;
+  const filter = intensity ? `filter: brightness(${(1 + intensity / 220).toFixed(2)}) contrast(${(1 + intensity / 550).toFixed(2)}) drop-shadow(${Math.round(Math.cos((Number(node.lightAzimuth || 270) * Math.PI) / 180) * 8)}px ${Math.round(Math.sin((Number(node.lightAzimuth || 270) * Math.PI) / 180) * 8)}px ${Math.round(8 + intensity / 8)}px ${hexToRgba(node.lightColor || '#ffffff', Math.min(.55, .18 + intensity / 160))});` : '';
+  return x === 1 && y === 1 && !yaw && !pitch && zoom === 1 && !filter ? '' : `${transform}${filter}`;
+}
+
+function hexToRgba(hex = '#ffffff', alpha = .45) {
+  const clean = String(hex || '#ffffff').replace('#', '');
+  const full = clean.length === 3 ? clean.split('').map(ch => ch + ch).join('') : clean.padEnd(6, 'f').slice(0, 6);
+  const n = parseInt(full, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function normalizeNode(node) {
   if (!node) return node;
   if (!Array.isArray(node.annotations)) node.annotations = [];
   if (!Array.isArray(node.inlineReferences)) node.inlineReferences = [];
+  node.disabled = !!node.disabled;
   node.annotationMode = !!node.annotationMode;
   node.annotationTool ||= 'brush';
+  node.annotationColor ||= '#ccff00';
   if (['image', 'video'].includes(node.type) && node.imageRatio) {
     node.imageRatio = imageRatioForNode(node);
   }
@@ -1125,6 +1375,14 @@ function normalizeNode(node) {
     node.text ||= DETAIL_PAGE_LOOP_PROMPT;
     node.panelW ||= 680;
     node.panelH ||= 220;
+  }
+  if (node.type === 'grid') {
+    node.gridItems = Array.isArray(node.gridItems) ? node.gridItems : [];
+    node.gridLayout ||= 'grid';
+    node.gridColumns = Math.max(1, Number(node.gridColumns || 3));
+    node.gridEditing = !!node.gridEditing;
+    node.gridCellRatio = Number(node.gridCellRatio || 0) || (node.gridItems[0]?.naturalWidth && node.gridItems[0]?.naturalHeight ? node.gridItems[0].naturalWidth / node.gridItems[0].naturalHeight : imageRatioForNode(node));
+    node.imageRatio = gridRatioForNode(node);
   }
   if (['t2i', 'i2i'].includes(node.type) && (!node.quality || (node.quality === '4k' && !node.qualityMigrated))) {
     node.quality = '2k';
@@ -1154,8 +1412,8 @@ function addNode(type, x, y, data = {}) {
     type,
     x,
     y,
-    w: data.w || (type === 'director' ? 720 : type === 'browser' ? 680 : type === 'loop' ? 620 : type === 'compare' ? 520 : type === 'script' ? 360 : ['text', 'prompt'].includes(type) ? 320 : ['t2v', 'i2v'].includes(type) ? 380 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
-    h: data.h || (type === 'director' ? 420 : type === 'browser' ? 430 : type === 'loop' ? 380 : type === 'compare' ? 300 : type === 'script' ? 220 : ['text', 'prompt'].includes(type) ? 180 : 120),
+    w: data.w || (type === 'director' ? 720 : type === 'browser' ? 680 : type === 'loop' ? 620 : type === 'grid' ? 680 : type === 'compare' ? 520 : type === 'script' ? 360 : ['text', 'prompt'].includes(type) ? 320 : ['t2v', 'i2v'].includes(type) ? 380 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
+    h: data.h || (type === 'director' ? 420 : type === 'browser' ? 430 : type === 'loop' ? 380 : type === 'grid' ? 410 : type === 'compare' ? 300 : type === 'script' ? 220 : ['text', 'prompt'].includes(type) ? 180 : 120),
     title: data.title || typeNames[type] || '节点',
     text: data.text || (type === 'loop' ? DETAIL_PAGE_LOOP_PROMPT : ''),
     url: data.url || '',
@@ -1174,11 +1432,20 @@ function addNode(type, x, y, data = {}) {
     resolution: data.resolution || '4K',
     imageCount: data.imageCount || 1,
     loopCount: data.loopCount || 8,
+    gridItems: Array.isArray(data.gridItems) ? data.gridItems : [],
+    gridLayout: data.gridLayout || 'grid',
+    gridColumns: data.gridColumns || 3,
+    gridEditing: !!data.gridEditing,
+    gridCellRatio: data.gridCellRatio || 0,
     inlineReferences: Array.isArray(data.inlineReferences) ? data.inlineReferences : [],
     directors: data.directors || [],
     annotations: Array.isArray(data.annotations) ? data.annotations : [],
     annotationMode: data.annotationMode || false,
     annotationTool: data.annotationTool || 'brush',
+    annotationColor: data.annotationColor || '#ccff00',
+    disabled: !!data.disabled,
+    flipX: !!data.flipX,
+    flipY: !!data.flipY,
     preset: data.preset || '',
     panelW: data.panelW || 680,
     panelH: data.panelH || 180,
@@ -1194,7 +1461,7 @@ function addNode(type, x, y, data = {}) {
     naturalHeight: data.naturalHeight || 0,
     createdAt: Date.now(),
   };
-  if (['image', 'video'].includes(node.type) && node.imageRatio) {
+  if (['image', 'video', 'grid'].includes(node.type) && node.imageRatio) {
     node.imageRatio = imageRatioForNode(node);
     if (!data.w) node.w = Math.min(420, Math.max(220, Math.round(180 * node.imageRatio)));
     if (!data.h) node.h = imageNodeHeight(node);
@@ -1223,7 +1490,8 @@ function render() {
     const div = document.createElement('div');
     const selectedClass = node.id === state.selectedId ? ' selected' : state.selectedIds.includes(node.id) ? ' multi-selected' : '';
     const fullscreenClass = node.fullscreenPreview ? ' fullscreen-preview' : '';
-    div.className = `node ${node.type}${selectedClass}${fullscreenClass}`;
+    const disabledClass = node.disabled ? ' disabled' : '';
+    div.className = `node ${node.type}${selectedClass}${fullscreenClass}${disabledClass}`;
     div.style.left = `${node.x}px`;
     div.style.top = `${node.y}px`;
     div.style.width = `${node.w}px`;
@@ -1324,19 +1592,23 @@ function nodeHTML(node) {
   } else if (node.type === 'image' && node.url) {
     floatingTools = imageUtilityToolbarHTML(node);
     const dims = imageDimensionsLabel(node);
+    const flipStyle = imageFlipStyle(node);
     body = `
-      <div class="image-node-preview" draggable="true" data-drag-asset-node="${node.id}">
-        <img class="image-output" src="${node.url}" alt="" draggable="false" data-capture-ratio>
+      <div class="image-node-preview" data-drag-asset-node="${node.id}">
+        <img class="image-output" src="${node.url}" alt="" draggable="false" data-capture-ratio ${flipStyle ? `style="${flipStyle}"` : ''}>
         <button type="button" class="image-replace-btn" data-replace-image title="替换照片">替换</button>
         ${dims ? `<span class="image-dim-badge">${escapeHtml(dims)}</span>` : ''}
         ${annotationOverlayHTML(node)}
       </div>
       <div class="pill">${escapeHtml(node.role || 'reference_image')}</div>
     `;
+  } else if (node.type === 'grid') {
+    floatingTools = gridToolbarHTML(node);
+    body = gridNodeHTML(node);
   } else if (node.type === 'video' && node.url) {
     const dims = imageDimensionsLabel(node);
     body = `
-      <div class="video-node-preview" draggable="true" data-drag-asset-node="${node.id}">
+      <div class="video-node-preview" data-drag-asset-node="${node.id}">
         <video src="${node.url}" controls preload="metadata" data-capture-ratio></video>
         ${dims ? `<span class="image-dim-badge">${escapeHtml(dims)}</span>` : ''}
       </div>
@@ -1508,49 +1780,138 @@ function createReversePromptNode(kind = 'image') {
 }
 
 function imageGeneratorHTML(node) {
+  const flipStyle = imageFlipStyle(node);
   const output = node.resultUrl
-    ? `<img class="image-output" src="${node.resultUrl}" alt="" draggable="false">`
+    ? `<img class="image-output" src="${node.resultUrl}" alt="" draggable="false" ${flipStyle ? `style="${flipStyle}"` : ''}>`
     : '<div class="image-output-empty">Image</div>';
   const download = node.resultUrl ? `<button class="node-download" data-download-image title="下载图片">下载</button>` : '';
   const status = node.taskStatus && node.taskStatus !== 'succeeded'
     ? `<div class="preview-status ${node.taskStatus}">${escapeHtml(node.progressText || node.taskStatus)}${progressBarHTML(node)}</div>`
     : '';
-  return `<div class="image-node-preview" draggable="true" data-drag-asset-node="${node.id}">${output}${download}${status}${annotationOverlayHTML(node)}</div>`;
+  return `<div class="image-node-preview" data-drag-asset-node="${node.id}">${output}${download}${status}${annotationOverlayHTML(node)}</div>`;
 }
 
 function imageUtilityToolbarHTML(node) {
+  const annotationColor = node.annotationColor || '#ccff00';
   return `
     <div class="image-tool-strip">
       <button data-image-tool="characterSheet" title="生成人物三视图">人物三视图</button>
       <button data-image-tool="nineGrid" title="生成九宫格">九宫格</button>
-      <button class="annotation-inline ${node.annotationMode && node.annotationTool !== 'text' ? 'active' : ''}" data-annotation-tool="brush" title="画笔标注">画笔</button>
-      <button class="annotation-inline ${node.annotationMode && node.annotationTool === 'text' ? 'active' : ''}" data-annotation-tool="text" title="文字标注">文字</button>
-      <button class="annotation-inline" data-annotation-clear title="清空标注">清空</button>
+      <button data-image-assist="angle" title="角度编辑器">角度</button>
+      <button data-image-assist="light" title="打光编辑器">打光</button>
+      <div class="image-tool-menu">
+        <button type="button" class="${node.annotationMode ? 'active' : ''}" title="编辑标注">编辑</button>
+        <div class="image-tool-dropdown annotation-edit-menu">
+          <label class="annotation-color-picker annotation-color-row" style="--annotation-color: ${escapeAttr(annotationColor)}" title="选择画笔和文字颜色">
+            <input type="color" data-annotation-color value="${escapeAttr(annotationColor)}">
+            <span>颜色</span>
+          </label>
+          <button class="annotation-inline ${node.annotationMode && node.annotationTool !== 'text' ? 'active' : ''}" data-annotation-tool="brush" title="画笔标注">画笔<span>按下鼠标绘制，松开停止</span></button>
+          <button class="annotation-inline ${node.annotationMode && node.annotationTool === 'text' ? 'active' : ''}" data-annotation-tool="text" title="文字标注">文字<span>拖出文字框后直接输入</span></button>
+          <button class="annotation-inline" data-annotation-save title="保存并退出编辑">保存<span>退出画笔/文字编辑状态</span></button>
+          <button class="annotation-inline" data-annotation-clear title="清空标注">清空<span>删除当前图片全部标注</span></button>
+        </div>
+      </div>
+      <div class="image-tool-menu">
+        <button type="button" title="图片反转">反转</button>
+        <div class="image-tool-dropdown">
+          <button type="button" data-image-flip="horizontal">水平翻转<span>Shift H</span></button>
+          <button type="button" data-image-flip="vertical">垂直翻转<span>Shift V</span></button>
+        </div>
+      </div>
       <div class="image-tool-menu">
         <button type="button" title="宫格裁切">宫格裁切</button>
         <div class="image-tool-dropdown">
-          <button data-image-grid="9">9宫格裁切<span>3×3 网格</span></button>
-          <button data-image-grid="16">16宫格裁切<span>4×4 网格</span></button>
-          <button data-image-grid="25">25宫格裁切<span>5×5 网格</span></button>
+          <button type="button" data-image-grid="9">9宫格裁切<span>3×3 网格</span></button>
+          <button type="button" data-image-grid="16">16宫格裁切<span>4×4 网格</span></button>
+          <button type="button" data-image-grid="25">25宫格裁切<span>5×5 网格</span></button>
         </div>
       </div>
     </div>
   `;
 }
 
+function gridLayoutColumns(node) {
+  const count = Math.max(1, node.gridItems?.length || 1);
+  if (node.gridLayout === 'horizontal') return count;
+  if (node.gridLayout === 'vertical') return 1;
+  return Math.max(1, Number(node.gridColumns || Math.round(Math.sqrt(count)) || 3));
+}
+
+function gridRatioForNode(node) {
+  const count = Math.max(1, node?.gridItems?.length || 1);
+  const cols = gridLayoutColumns(node);
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const cellRatio = Number(node?.gridCellRatio || 0)
+    || (node?.gridItems?.[0]?.naturalWidth && node?.gridItems?.[0]?.naturalHeight ? node.gridItems[0].naturalWidth / node.gridItems[0].naturalHeight : 16 / 9);
+  return Math.max(0.2, Math.min(8, (cols / rows) * cellRatio));
+}
+
+function gridToolbarHTML(node) {
+  const activeLayout = node.gridLayout || 'grid';
+  return `
+    <div class="image-tool-strip grid-tool-strip">
+      <button type="button" data-grid-download>批量下载</button>
+      <div class="image-tool-menu">
+        <button type="button">布局</button>
+        <div class="image-tool-dropdown">
+          <button type="button" data-grid-layout="grid" class="${activeLayout === 'grid' ? 'active' : ''}">宫格布局<span>紧密镶嵌网格</span></button>
+          <button type="button" data-grid-layout="horizontal" class="${activeLayout === 'horizontal' ? 'active' : ''}">水平布局<span>横向连续排列</span></button>
+          <button type="button" data-grid-layout="vertical" class="${activeLayout === 'vertical' ? 'active' : ''}">垂直布局<span>竖向连续排列</span></button>
+        </div>
+      </div>
+      <button type="button" data-grid-edit class="${node.gridEditing ? 'active' : ''}">编辑</button>
+      <button type="button" data-grid-split>拆分</button>
+      <button type="button" data-grid-clear>清空</button>
+    </div>
+  `;
+}
+
+function gridNodeHTML(node) {
+  const items = Array.isArray(node.gridItems) ? node.gridItems : [];
+  const cols = gridLayoutColumns(node);
+  const layout = node.gridLayout || 'grid';
+  return `
+    <div class="grid-node-preview ${node.gridEditing ? 'editing' : ''}" data-grid-node>
+      <div class="grid-mosaic layout-${escapeAttr(layout)}" style="--grid-cols:${cols}">
+        ${items.length ? items.map((item, index) => `
+          <div class="grid-cell" data-grid-cell="${index}" draggable="${node.gridEditing ? 'true' : 'false'}" title="${node.gridEditing ? '拖拽排序，或拖出到画布' : '双击或点编辑进入排序'}">
+            <img src="${escapeAttr(item.url)}" alt="${escapeAttr(item.title || `分镜${index + 1}`)}" draggable="false">
+          </div>
+        `).join('') : '<div class="grid-empty">暂无分镜</div>'}
+      </div>
+      <div class="grid-caption">${node.gridEditing ? '编辑中：拖动格子排序，拖到画布可拆出单图，外部图片拖入可替换' : '双击或点击编辑进入分镜编辑排序'}</div>
+    </div>
+  `;
+}
+
 function annotationOverlayHTML(node) {
   const annotations = Array.isArray(node.annotations) ? node.annotations : [];
-  const shapes = annotations.map(item => {
+  const shapes = annotations.map((item, index) => {
+    const color = escapeAttr(item.color || node.annotationColor || '#ccff00');
     if (item.type === 'text') {
-      return `<text x="${Number(item.x || 0)}" y="${Number(item.y || 0)}" fill="${escapeAttr(item.color || '#ccff00')}" font-size="4.5" font-weight="800">${escapeHtml(item.text || '')}</text>`;
+      return `<text class="annotation-item annotation-text" data-annotation-index="${index}" x="${Number(item.x || 0)}" y="${Number(item.y || 0)}" fill="${color}" font-size="4.5" font-weight="800">${escapeHtml(item.text || '')}</text>`;
     }
+    if (item.type === 'textBox') return '';
     const d = (item.points || []).map((point, index) => `${index ? 'L' : 'M'} ${Number(point.x || 0).toFixed(2)} ${Number(point.y || 0).toFixed(2)}`).join(' ');
-    return `<path d="${d}" fill="none" stroke="${escapeAttr(item.color || '#ccff00')}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>`;
+    return `<path class="annotation-item annotation-path" data-annotation-index="${index}" d="${d}" fill="none" stroke="${color}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"></path>`;
+  }).join('');
+  const textBoxes = annotations.map((item, index) => {
+    if (item.type !== 'textBox') return '';
+    const color = escapeAttr(item.color || node.annotationColor || '#ccff00');
+    const x = Math.max(0, Math.min(100, Number(item.x || 0)));
+    const y = Math.max(0, Math.min(100, Number(item.y || 0)));
+    const w = Math.max(4, Math.min(100 - x, Number(item.w || 18)));
+    const h = Math.max(4, Math.min(100 - y, Number(item.h || 8)));
+    return `<div class="annotation-box annotation-item" data-annotation-index="${index}" data-annotation-textbox-index="${index}" contenteditable="${node.annotationMode}" spellcheck="false" style="left:${x}%;top:${y}%;min-width:${w}%;min-height:${h}%;color:${color};--annotation-color:${color};">${escapeHtml(item.text || '输入文字')}</div>`;
   }).join('');
   return `
     <svg class="annotation-layer ${node.annotationMode ? 'active' : ''}" viewBox="0 0 100 100" preserveAspectRatio="none" data-annotation-layer>
       ${shapes}
     </svg>
+    <div class="annotation-text-layer ${node.annotationMode ? 'active' : ''}" data-annotation-text-layer>
+      ${textBoxes}
+    </div>
   `;
 }
 
@@ -1741,13 +2102,11 @@ function renderParamPanel() {
   const node = state.nodes.find(n => n.id === state.activeParamNodeId && isGeneratorType(n.type));
   if (!node) return;
   const panel = document.createElement('div');
-  const nodeW = Number(node.w || 0);
-  const preferredW = node.panelW || (['t2v', 'i2v'].includes(node.type) ? 560 : 520);
-  const panelW = Math.max(nodeW, preferredW);
+  const panelW = paramPanelWidth(node);
   panel.className = `param-panel ${node.type}`;
   panel.dataset.id = node.id;
-  panel.style.left = `${node.x + (node.w || panelW) / 2 - panelW / 2}px`;
-  panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
+  panel.style.left = `${paramPanelLeft(node, panelW)}px`;
+  panel.style.top = `${paramPanelTop(node)}px`;
   panel.style.width = `${panelW}px`;
   panel.style.minHeight = `${node.panelH || 180}px`;
   panel.innerHTML = `
@@ -1758,6 +2117,31 @@ function renderParamPanel() {
   `;
   els.world.appendChild(panel);
 }
+
+function paramPanelWidth(node) {
+  const nodeW = Number(node?.w || 0);
+  const preferredW = Number(node?.panelW || (['t2v', 'i2v'].includes(node?.type) ? 560 : 520));
+  return Math.max(nodeW, preferredW);
+}
+
+function paramPanelLeft(node, panelW = paramPanelWidth(node)) {
+  return node.x + (node.w || panelW) / 2 - panelW / 2;
+}
+
+function paramPanelTop(node) {
+  return node.y + (node.h || previewHeightForNode(node)) + 12;
+}
+
+function syncParamPanelPosition(node) {
+  if (!node) return;
+  const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
+  if (!panel) return;
+  const panelW = Math.max(paramPanelWidth(node), panel.offsetWidth || 0);
+  panel.style.width = `${panelW}px`;
+  panel.style.left = `${paramPanelLeft(node, panelW)}px`;
+  panel.style.top = `${paramPanelTop(node)}px`;
+}
+
 function referenceImageStripHTML(node) {
   const refs = referencesForNode(node.id).filter(r => r.kind === 'image');
   const refStrip = refs.map((ref, index) => `
@@ -2111,9 +2495,12 @@ function renderPromptPresetBoard() {
   els.materialBoard.innerHTML = `
     <div class="workspace-board prompt-board">
       <div class="preset-tabs">
-        ${promptCategoryList().map(({ id, label }) => `<button type="button" draggable="${id === 'all' ? 'false' : 'true'}" class="${state.promptPresetFilter === id ? 'active' : ''}" data-preset-filter="${id}" data-preset-category-id="${id}">${escapeHtml(label)}</button>`).join('')}
-        <button type="button" class="manage-btn" data-preset-category-new>+ 新增</button>
-        <button type="button" class="danger-btn" data-preset-category-delete>删除</button>
+        ${promptCategoryList().map(({ id, label }) => `<button type="button" draggable="${id === 'all' ? 'false' : 'true'}" class="${state.promptPresetFilter === id ? 'active' : ''}" data-preset-filter="${id}" data-preset-category-id="${id}" title="${id === 'all' ? '全部分类' : '双击或右键可重命名'}">${escapeHtml(label)}</button>`).join('')}
+        <div class="preset-category-actions">
+          <button type="button" class="manage-btn" data-preset-category-new>新增</button>
+          <button type="button" class="manage-btn" data-preset-category-rename>重命名</button>
+          <button type="button" class="danger-btn" data-preset-category-delete>删除</button>
+        </div>
         <div class="preset-search">
           <input data-preset-search value="${escapeAttr(state.promptPresetQuery || '')}" placeholder="查询提示词关键字">
           <button type="button" data-preset-search-run>查询</button>
@@ -2208,6 +2595,8 @@ function renderCloneBoard() {
 
 function renderTalkingAgentBoard() {
   const talk = state.talkingAgent || {};
+  const audioOptions = TALKING_PRESET_AUDIOS.map(([value, label]) => `<option value="${escapeAttr(value)}" ${talk.presetAudio === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const avatarOptions = TALKING_PRESET_AVATARS.map(([value, label]) => `<option value="${escapeAttr(value)}" ${talk.presetAvatar === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
   els.materialBoard.innerHTML = `
     <div class="workspace-board clone-board talking-agent-board">
       <div class="workspace-head">
@@ -2240,6 +2629,12 @@ function renderTalkingAgentBoard() {
               <button type="button" class="active" data-talking-action="upload-audio">上传音频</button>
               <button type="button" data-talking-action="preset-audio">预设音频</button>
             </div>
+            <label class="talking-preset-select">预设音频
+              <select data-talking-field="presetAudio">
+                <option value="">选择一个预设音频</option>
+                ${audioOptions}
+              </select>
+            </label>
             <div class="talking-file-box">
               <button type="button" data-talking-action="upload-audio">选择文件</button>
               <span>${escapeHtml(talk.audioName || '未选择文件')}</span>
@@ -2267,6 +2662,12 @@ function renderTalkingAgentBoard() {
               <button type="button" class="active" data-talking-action="upload-avatar">上传视频</button>
               <button type="button" data-talking-action="preset-avatar">预设形象</button>
             </div>
+            <label class="talking-preset-select">预设形象
+              <select data-talking-field="presetAvatar">
+                <option value="">选择一个预设形象</option>
+                ${avatarOptions}
+              </select>
+            </label>
             <div class="talking-file-box">
               <button type="button" data-talking-action="upload-avatar">选择文件</button>
               <span>${escapeHtml(talk.avatarName || '等待数字人素材')}</span>
@@ -2410,6 +2811,10 @@ function syncTalkingAgentFromBoard() {
   });
 }
 
+function presetLabel(list, value, fallback = '') {
+  return list.find(([id]) => id === value)?.[1] || fallback;
+}
+
 function setTalkingAudioFile(file) {
   if (!file || !file.type?.startsWith('audio/')) {
     setStatus('请选择音频文件');
@@ -2469,18 +2874,24 @@ function rewriteTalkingScript() {
   setStatus('文案已改写，可继续生成音频或视频节点');
 }
 
-function usePresetTalkingAudio() {
-  state.talkingAgent.audioName = '预设音频：稳重男声';
+function usePresetTalkingAudio(value = '') {
+  const preset = value || state.talkingAgent.presetAudio || TALKING_PRESET_AUDIOS[0]?.[0] || '';
+  state.talkingAgent.presetAudio = preset;
+  const label = presetLabel(TALKING_PRESET_AUDIOS, preset, '稳重男声');
+  state.talkingAgent.audioName = `预设音频：${label}`;
   state.talkingAgent.audioUrl = '';
   renderMaterialBoard();
-  setStatus('已选择预设音频：稳重男声');
+  setStatus(`已选择预设音频：${label}`);
 }
 
-function usePresetTalkingAvatar() {
-  state.talkingAgent.avatarName = '预设数字人：商务口播';
+function usePresetTalkingAvatar(value = '') {
+  const preset = value || state.talkingAgent.presetAvatar || TALKING_PRESET_AVATARS[0]?.[0] || '';
+  state.talkingAgent.presetAvatar = preset;
+  const label = presetLabel(TALKING_PRESET_AVATARS, preset, '商务口播');
+  state.talkingAgent.avatarName = `预设数字人：${label}`;
   state.talkingAgent.avatarUrl = '';
   renderMaterialBoard();
-  setStatus('已选择预设数字人：商务口播');
+  setStatus(`已选择预设数字人：${label}`);
 }
 
 function createTalkingAudioTaskNode() {
@@ -3023,11 +3434,11 @@ function addGenerationHistory(item) {
 }
 
 function canOutput(type) {
-  return ['text', 'prompt', 'image', 'video', 'audio', 'script', 'result', 'world', 't2i', 'i2i', 't2v', 'i2v', 'director', 'compare', 'browser', 'loop'].includes(type);
+  return ['text', 'prompt', 'image', 'video', 'audio', 'script', 'result', 'world', 't2i', 'i2i', 't2v', 'i2v', 'director', 'compare', 'browser', 'loop', 'grid'].includes(type);
 }
 
 function canInput(type) {
-  return ['image', 'video', 'audio', 't2i', 'i2i', 'i2v', 't2v', 'script', 'result', 'world', 'director', 'compare', 'browser', 'loop'].includes(type);
+  return ['image', 'video', 'audio', 't2i', 'i2i', 'i2v', 't2v', 'script', 'result', 'world', 'director', 'compare', 'browser', 'loop', 'grid'].includes(type);
 }
 
 function eventNodeElement(target) {
@@ -3268,11 +3679,19 @@ function showMenu(x, y, options = {}) {
   els.menu.style.left = `${x}px`;
   els.menu.style.top = `${y}px`;
   if (!options.keepPendingLink) clearPendingLink();
-  const hasMultiSelection = state.selectedIds.length > 1;
+  const selectedGroups = selectedGroupNodes();
+  const hasGroupSelection = selectedGroups.length > 0;
+  const hasLayoutSelection = selectedRealNodes().length > 1;
+  const hasMultiSelection = state.selectedIds.length > 1 || hasGroupSelection;
   if (els.menuTitle) els.menuTitle.textContent = hasMultiSelection ? '选区操作' : options.keepPendingLink ? '连接到' : '添加节点';
   els.menu.querySelectorAll('.selected-menu').forEach(el => {
     el.classList.toggle('hidden', !hasMultiSelection);
   });
+  els.menu.querySelectorAll('[data-menu^="layout-"]').forEach(el => {
+    el.classList.toggle('disabled', !hasLayoutSelection);
+  });
+  const groupButton = els.menu.querySelector('[data-menu="group"]');
+  if (groupButton) groupButton.textContent = hasGroupSelection ? '解组' : '打组';
   const menuNode = state.nodes.find(n => n.id === state.menuNodeId);
   els.menu.querySelectorAll('.image-node-menu').forEach(el => {
     el.classList.toggle('hidden', !isAssetCandidateNode(menuNode));
@@ -3302,8 +3721,12 @@ function executeMenuAction(type, point = state.menuPoint) {
     arrangeSelectedNodes();
     return null;
   }
+  if (type === 'layout-grid' || type === 'layout-horizontal' || type === 'layout-vertical') {
+    layoutSelectedNodes(type.replace('layout-', ''));
+    return null;
+  }
   if (type === 'group') {
-    groupSelectedNodes();
+    toggleGroupSelection();
     return null;
   }
   if (type === 'add-asset') {
@@ -3603,8 +4026,27 @@ function sourceAndInheritedImageIds(source) {
 
 function imageUrlForNode(node) {
   if (!node) return '';
+  if (node.type === 'grid') return node.gridItems?.[0]?.url || '';
   if (node.resultUrl || node.url) return node.resultUrl || node.url;
   return referencesForNode(node.id).find(ref => ref.kind === 'image')?.url || '';
+}
+
+function flipImageNode(nodeId, direction = 'horizontal') {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || !['image', 't2i', 'i2i', 'result'].includes(node.type) || !imageUrlForNode(node)) {
+    setStatus('请先选择有图片的节点再反转');
+    return;
+  }
+  if (direction === 'vertical') {
+    node.flipY = !node.flipY;
+  } else {
+    node.flipX = !node.flipX;
+  }
+  state.selectedId = node.id;
+  state.selectedIds = [node.id];
+  render();
+  saveCanvas();
+  setStatus(direction === 'vertical' ? '已垂直翻转图片' : '已水平翻转图片');
 }
 
 function loadImageForCanvas(url) {
@@ -3631,11 +4073,9 @@ async function cropImageGrid(nodeId, grid = 9) {
     const img = await loadImageForCanvas(url);
     const cropW = Math.floor(img.naturalWidth / side);
     const cropH = Math.floor(img.naturalHeight / side);
-    const nodeW = Math.max(120, Math.min(220, Math.round((source.w || 240) / Math.max(1.4, side / 2))));
-    const gap = 18;
     const startX = source.x + (source.w || 240) + 80;
     const startY = source.y;
-    const created = [];
+    const items = [];
     for (let row = 0; row < side; row += 1) {
       for (let col = 0; col < side; col += 1) {
         const canvas = document.createElement('canvas');
@@ -3644,27 +4084,336 @@ async function cropImageGrid(nodeId, grid = 9) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, col * cropW, row * cropH, cropW, cropH, 0, 0, cropW, cropH);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        const node = addNode('image', startX + col * (nodeW + gap), startY + row * (Math.round(nodeW * cropH / cropW) + 56), {
+        items.push({
+          id: uid('grid_item'),
           title: `${source.title || '图片'}_${row + 1}-${col + 1}`,
           url: dataUrl,
           mime: 'image/jpeg',
-          role: 'grid_crop',
-          w: nodeW,
-          imageRatio: cropW / cropH,
           naturalWidth: cropW,
           naturalHeight: cropH,
         });
-        created.push(node.id);
       }
     }
-    state.selectedIds = created;
-    state.selectedId = created[0] || source.id;
+    const gridW = Math.max(520, Math.min(860, Math.round((source.w || 420) * 1.35)));
+    const ratio = cropW / cropH;
+    const gridNode = addNode('grid', startX, startY, {
+      title: '分镜格子',
+      gridItems: items,
+      gridLayout: 'grid',
+      gridColumns: side,
+      gridCellRatio: ratio,
+      imageRatio: ratio,
+      naturalWidth: cropW * side,
+      naturalHeight: cropH * side,
+      w: gridW,
+      h: 28 + Math.round(gridW / ratio),
+    });
+    state.selectedIds = [gridNode.id];
+    state.selectedId = gridNode.id;
     render();
     saveCanvas();
-    setStatus(`已裁切 ${grid} 宫格`);
+    setStatus(`已生成 ${grid} 宫格分镜，可编辑排序或批量下载`);
   } catch (err) {
     setStatus(`裁切失败：${err.message}`);
   }
+}
+
+function setGridLayout(nodeId, layout = 'grid') {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || node.type !== 'grid') return;
+  node.gridLayout = layout;
+  const count = Math.max(1, node.gridItems?.length || 1);
+  node.gridColumns = layout === 'horizontal' ? count : layout === 'vertical' ? 1 : Math.max(1, Math.round(Math.sqrt(count)));
+  node.imageRatio = gridRatioForNode(node);
+  node.h = imageNodeHeight(node);
+  render();
+  saveCanvas();
+  setStatus(layout === 'horizontal' ? '已切换水平布局' : layout === 'vertical' ? '已切换垂直布局' : '已切换宫格布局');
+}
+
+function toggleGridEditing(nodeId) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || node.type !== 'grid') return;
+  node.gridEditing = !node.gridEditing;
+  state.selectedId = node.id;
+  state.selectedIds = [node.id];
+  render();
+  saveCanvas();
+  setStatus(node.gridEditing ? '分镜编辑已开启：可拖拽排序、拖出或替换格子' : '分镜编辑已关闭');
+}
+
+function downloadGridItems(nodeId) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || node.type !== 'grid' || !node.gridItems?.length) return;
+  node.gridItems.forEach((item, index) => {
+    window.setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = item.url;
+      a.download = `${node.title || 'grid'}_${index + 1}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, index * 120);
+  });
+  setStatus(`正在批量下载 ${node.gridItems.length} 张分镜`);
+}
+
+function splitGridNode(nodeId) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || node.type !== 'grid' || !node.gridItems?.length) return;
+  const cols = gridLayoutColumns(node);
+  const cellRatio = Number(node.gridItems[0]?.naturalWidth || 16) / Math.max(1, Number(node.gridItems[0]?.naturalHeight || 9));
+  const nodeW = Math.max(140, Math.min(240, Math.round((node.w || 680) / Math.max(1, cols))));
+  const gap = 18;
+  const created = [];
+  node.gridItems.forEach((item, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const image = addNode('image', node.x + col * (nodeW + gap), node.y + row * (Math.round(nodeW / cellRatio) + 48), {
+      title: item.title || `${node.title || '分镜'}_${index + 1}`,
+      url: item.url,
+      mime: item.mime || 'image/jpeg',
+      role: 'grid_crop',
+      w: nodeW,
+      imageRatio: cellRatio,
+      naturalWidth: item.naturalWidth || 0,
+      naturalHeight: item.naturalHeight || 0,
+    });
+    created.push(image.id);
+  });
+  state.selectedIds = created;
+  state.selectedId = created[0] || node.id;
+  render();
+  saveCanvas();
+  setStatus(`已拆分 ${created.length} 张分镜到画布`);
+}
+
+function clearGridNode(nodeId) {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || node.type !== 'grid') return;
+  node.gridItems = [];
+  render();
+  saveCanvas();
+  setStatus('分镜格子已清空');
+}
+
+function replaceGridCellFromNode(gridId, cellIndex, sourceNodeId) {
+  const grid = state.nodes.find(n => n.id === gridId);
+  const source = state.nodes.find(n => n.id === sourceNodeId);
+  const url = imageUrlForNode(source);
+  if (!grid || grid.type !== 'grid' || !url || cellIndex < 0) return false;
+  grid.gridItems[cellIndex] = {
+    id: uid('grid_item'),
+    title: source.title || `图片${cellIndex + 1}`,
+    url,
+    mime: source.mime || 'image/png',
+    naturalWidth: source.naturalWidth || 0,
+    naturalHeight: source.naturalHeight || 0,
+  };
+  render();
+  saveCanvas();
+  setStatus(`已替换第 ${cellIndex + 1} 格`);
+  return true;
+}
+
+function gridCellFromPoint(clientX, clientY, ignoreEl = null) {
+  const previousPointerEvents = ignoreEl?.style?.pointerEvents;
+  if (ignoreEl) ignoreEl.style.pointerEvents = 'none';
+  const cell = document.elementFromPoint(clientX, clientY)?.closest?.('[data-grid-cell]');
+  if (ignoreEl) ignoreEl.style.pointerEvents = previousPointerEvents || '';
+  if (!cell) return null;
+  const nodeEl = cell.closest('.node');
+  const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+  if (!node || node.type !== 'grid') return null;
+  return { nodeId: node.id, index: Number(cell.dataset.gridCell) };
+}
+
+function createImageNodeFromGridCell(gridId, cellIndex, point) {
+  const grid = state.nodes.find(n => n.id === gridId);
+  const item = grid?.gridItems?.[cellIndex];
+  if (!grid || !item?.url) return;
+  const ratio = item.naturalWidth && item.naturalHeight ? item.naturalWidth / item.naturalHeight : imageRatioForNode(grid);
+  addNode('image', point.x, point.y, {
+    title: item.title || `${grid.title || '分镜'}_${cellIndex + 1}`,
+    url: item.url,
+    mime: item.mime || 'image/jpeg',
+    role: 'grid_crop',
+    w: 220,
+    imageRatio: ratio,
+    naturalWidth: item.naturalWidth || 0,
+    naturalHeight: item.naturalHeight || 0,
+  });
+  setStatus('已把分镜拖出为图片节点');
+}
+
+function createGridFromSelectedImages(layout = 'grid') {
+  const images = state.nodes
+    .filter(n => state.selectedIds.includes(n.id) && imageUrlForNode(n))
+    .map(n => ({
+      id: uid('grid_item'),
+      title: n.title || typeNames[n.type] || '图片',
+      url: imageUrlForNode(n),
+      mime: n.mime || 'image/png',
+      naturalWidth: n.naturalWidth || 0,
+      naturalHeight: n.naturalHeight || 0,
+    }));
+  if (images.length < 2) {
+    setStatus('请先框选至少两张图片再布局');
+    return;
+  }
+  const bounds = boundsForNodes(state.nodes.filter(n => state.selectedIds.includes(n.id)));
+  const firstRatio = images[0].naturalWidth && images[0].naturalHeight ? images[0].naturalWidth / images[0].naturalHeight : 16 / 9;
+  const cols = layout === 'horizontal' ? images.length : layout === 'vertical' ? 1 : Math.ceil(Math.sqrt(images.length));
+  const rows = Math.ceil(images.length / cols);
+  const ratio = layout === 'horizontal' ? firstRatio * images.length : layout === 'vertical' ? firstRatio / images.length : (cols / rows) * firstRatio;
+  const grid = addNode('grid', bounds.minX, bounds.maxY + 46, {
+    title: '布局合成',
+    gridItems: images,
+    gridLayout: layout,
+    gridColumns: cols,
+    imageRatio: ratio,
+    w: Math.max(520, Math.min(900, bounds.w)),
+  });
+  grid.h = imageNodeHeight(grid);
+  state.selectedIds = [grid.id];
+  state.selectedId = grid.id;
+  render();
+  saveCanvas();
+  setStatus(`已把 ${images.length} 张图片合成布局节点`);
+}
+
+function openImageAssistPanel(nodeId, mode = 'angle') {
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (!node || !imageUrlForNode(node)) {
+    setStatus('请先选择有图片的节点');
+    return;
+  }
+  document.querySelector('.image-assist-panel')?.remove();
+  const isLight = mode === 'light';
+  const panel = document.createElement('div');
+  panel.className = 'image-assist-panel';
+  panel.dataset.nodeId = node.id;
+  panel.dataset.assistMode = mode;
+  panel.innerHTML = isLight ? `
+    <div class="assist-head"><strong>打光编辑器</strong><button type="button" data-close-assist>×</button></div>
+    <div class="assist-body light">
+      <div class="assist-preview light-preview" data-assist-preview><img data-assist-image src="${escapeAttr(imageUrlForNode(node))}" alt=""><span data-assist-light-dot></span></div>
+      <div class="assist-controls">
+        <label>主光源</label>
+        <div class="assist-button-grid">
+          ${[
+            ['左侧', 180, 0], ['顶部', 270, 65], ['右侧', 0, 0],
+            ['前方', 270, 0], ['底部', 90, -55], ['后方', 90, 0],
+          ].map(([label, azimuth, height]) => `<button type="button" data-light-preset="${label}" data-azimuth="${azimuth}" data-height="${height}">${label}</button>`).join('')}
+        </div>
+        <label>水平环绕 <input data-assist-control="lightAzimuth" type="range" min="0" max="360" value="${Number(node.lightAzimuth ?? 270)}"><b data-assist-output="lightAzimuth">0°</b></label>
+        <label>高度 <input data-assist-control="lightHeight" type="range" min="-90" max="90" value="${Number(node.lightHeight ?? 0)}"><b data-assist-output="lightHeight">0°</b></label>
+        <label>强度 <input data-assist-control="lightIntensity" type="range" min="0" max="100" value="${Number(node.lightIntensity ?? 30)}"><b data-assist-output="lightIntensity">30%</b></label>
+        <label>灯光颜色 <input data-assist-control="lightColor" type="color" value="${escapeAttr(node.lightColor || '#ffffff')}"><b data-assist-output="lightColor">${escapeHtml(node.lightColor || '#ffffff')}</b></label>
+      </div>
+      <button type="button" class="assist-apply" data-assist-apply>执行</button>
+    </div>
+  ` : `
+    <div class="assist-head"><strong>多角度编辑器</strong><button type="button" data-close-assist>×</button></div>
+    <div class="assist-body angle">
+      <div class="assist-presets">
+        ${[
+          ['自定义', 0, 0, 1], ['鱼眼视角', -24, 8, 1.18], ['倾斜视角', -18, -12, 1.05],
+          ['正面俯拍', 0, 28, .92], ['正面仰拍', 0, -24, 1.08], ['全景俯拍', 0, 42, .72], ['背面视角', 180, 0, 1],
+        ].map(([label, yaw, pitch, zoom]) => `<button type="button" data-angle-preset="${label}" data-yaw="${yaw}" data-pitch="${pitch}" data-zoom="${zoom}">${label}</button>`).join('')}
+      </div>
+      <div class="assist-orbit" data-assist-preview><img data-assist-image src="${escapeAttr(imageUrlForNode(node))}" alt=""><i></i></div>
+      <div class="assist-controls">
+        <label>水平环绕 <input data-assist-control="angleYaw" type="range" min="-180" max="180" value="${Number(node.angleYaw || 0)}"><b data-assist-output="angleYaw">0°</b></label>
+        <label>垂直俯仰 <input data-assist-control="anglePitch" type="range" min="-90" max="90" value="${Number(node.anglePitch || 0)}"><b data-assist-output="anglePitch">0°</b></label>
+        <label>景别缩放 <input data-assist-control="angleZoom" type="range" min="55" max="185" value="${Math.round(Number(node.angleZoom || 1) * 100)}"><b data-assist-output="angleZoom">中景</b></label>
+      </div>
+      <button type="button" class="assist-apply" data-assist-apply>执行</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+  panel.querySelector('[data-close-assist]')?.addEventListener('click', () => panel.remove());
+  const update = () => updateAssistPreview(panel);
+  panel.querySelectorAll('[data-assist-control]').forEach(input => input.addEventListener('input', update));
+  panel.querySelectorAll('[data-angle-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      panel.querySelector('[data-assist-control="angleYaw"]').value = btn.dataset.yaw;
+      panel.querySelector('[data-assist-control="anglePitch"]').value = btn.dataset.pitch;
+      panel.querySelector('[data-assist-control="angleZoom"]').value = Math.round(Number(btn.dataset.zoom || 1) * 100);
+      panel.querySelectorAll('[data-angle-preset]').forEach(item => item.classList.remove('active'));
+      btn.classList.add('active');
+      update();
+    });
+  });
+  panel.querySelectorAll('[data-light-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      panel.querySelector('[data-assist-control="lightAzimuth"]').value = btn.dataset.azimuth;
+      panel.querySelector('[data-assist-control="lightHeight"]').value = btn.dataset.height;
+      panel.querySelectorAll('[data-light-preset]').forEach(item => item.classList.remove('active'));
+      btn.classList.add('active');
+      update();
+    });
+  });
+  panel.querySelector('[data-assist-apply]')?.addEventListener('click', () => {
+    const target = state.nodes.find(n => n.id === panel.dataset.nodeId);
+    if (!target) return;
+    if (panel.dataset.assistMode === 'light') {
+      target.lightAzimuth = Number(panel.querySelector('[data-assist-control="lightAzimuth"]')?.value || 270);
+      target.lightHeight = Number(panel.querySelector('[data-assist-control="lightHeight"]')?.value || 0);
+      target.lightIntensity = Number(panel.querySelector('[data-assist-control="lightIntensity"]')?.value || 30);
+      target.lightColor = panel.querySelector('[data-assist-control="lightColor"]')?.value || '#ffffff';
+    } else {
+      target.angleYaw = Number(panel.querySelector('[data-assist-control="angleYaw"]')?.value || 0);
+      target.anglePitch = Number(panel.querySelector('[data-assist-control="anglePitch"]')?.value || 0);
+      target.angleZoom = Number(panel.querySelector('[data-assist-control="angleZoom"]')?.value || 100) / 100;
+    }
+    render();
+    saveCanvas();
+    panel.remove();
+    setStatus(panel.dataset.assistMode === 'light' ? '打光参数已应用到图片节点' : '角度参数已应用到图片节点');
+  });
+  update();
+}
+
+function updateAssistPreview(panel) {
+  const image = panel.querySelector('[data-assist-image]');
+  const preview = panel.querySelector('[data-assist-preview]');
+  if (!image || !preview) return;
+  if (panel.dataset.assistMode === 'light') {
+    const azimuth = Number(panel.querySelector('[data-assist-control="lightAzimuth"]')?.value || 270);
+    const height = Number(panel.querySelector('[data-assist-control="lightHeight"]')?.value || 0);
+    const intensity = Number(panel.querySelector('[data-assist-control="lightIntensity"]')?.value || 30);
+    const color = panel.querySelector('[data-assist-control="lightColor"]')?.value || '#ffffff';
+    const rad = (azimuth * Math.PI) / 180;
+    const lightX = 50 + Math.cos(rad) * 42;
+    const lightY = 50 + Math.sin(rad) * 42 - height * .28;
+    preview.style.setProperty('--light-x', `${Math.max(0, Math.min(100, lightX))}%`);
+    preview.style.setProperty('--light-y', `${Math.max(0, Math.min(100, lightY))}%`);
+    preview.style.setProperty('--light-color', hexToRgba(color, Math.min(.82, .22 + intensity / 120)));
+    preview.style.setProperty('--light-opacity', String(Math.min(.9, .18 + intensity / 110)));
+    image.style.filter = `brightness(${(0.72 + intensity / 120).toFixed(2)}) contrast(${(1 + intensity / 420).toFixed(2)})`;
+    image.style.boxShadow = `${Math.round(Math.cos(rad) * 12)}px ${Math.round(Math.sin(rad) * 12)}px ${Math.round(12 + intensity / 3)}px ${hexToRgba(color, Math.min(.65, .18 + intensity / 130))}`;
+    const dot = panel.querySelector('[data-assist-light-dot]');
+    if (dot) {
+      dot.style.left = `${Math.max(0, Math.min(100, lightX))}%`;
+      dot.style.top = `${Math.max(0, Math.min(100, lightY))}%`;
+      dot.style.background = color;
+    }
+    panel.querySelector('[data-assist-output="lightAzimuth"]').textContent = `${azimuth}°`;
+    panel.querySelector('[data-assist-output="lightHeight"]').textContent = `${height}°`;
+    panel.querySelector('[data-assist-output="lightIntensity"]').textContent = `${intensity}%`;
+    panel.querySelector('[data-assist-output="lightColor"]').textContent = color.toUpperCase();
+    return;
+  }
+  const yaw = Number(panel.querySelector('[data-assist-control="angleYaw"]')?.value || 0);
+  const pitch = Number(panel.querySelector('[data-assist-control="anglePitch"]')?.value || 0);
+  const zoom = Number(panel.querySelector('[data-assist-control="angleZoom"]')?.value || 100) / 100;
+  image.style.transform = `perspective(680px) rotateX(${pitch}deg) rotateY(${yaw}deg) scale(${zoom})`;
+  preview.style.setProperty('--orbit-yaw', `${yaw}deg`);
+  preview.style.setProperty('--orbit-pitch', `${pitch}deg`);
+  panel.querySelector('[data-assist-output="angleYaw"]').textContent = `${yaw}°`;
+  panel.querySelector('[data-assist-output="anglePitch"]').textContent = `${pitch}°`;
+  panel.querySelector('[data-assist-output="angleZoom"]').textContent = zoom < .85 ? '远景' : zoom > 1.18 ? '近景' : '中景';
 }
 
 function toggleAnnotationMode(nodeId, enabled = true) {
@@ -3687,6 +4436,28 @@ function annotationPoint(event, layer) {
     x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
     y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
   };
+}
+
+function moveAnnotationItem(item, dx, dy) {
+  if (!item) return;
+  if (item.type === 'text') {
+    item.x = Math.max(0, Math.min(100, Number(item.x || 0) + dx));
+    item.y = Math.max(0, Math.min(100, Number(item.y || 0) + dy));
+    return;
+  }
+  if (item.type === 'textBox') {
+    const width = Math.max(1, Number(item.w || 10));
+    const height = Math.max(1, Number(item.h || 6));
+    item.x = Math.max(0, Math.min(100 - width, Number(item.x || 0) + dx));
+    item.y = Math.max(0, Math.min(100 - height, Number(item.y || 0) + dy));
+    return;
+  }
+  if (Array.isArray(item.points)) {
+    item.points = item.points.map(point => ({
+      x: Math.max(0, Math.min(100, Number(point.x || 0) + dx)),
+      y: Math.max(0, Math.min(100, Number(point.y || 0) + dy)),
+    }));
+  }
 }
 
 function createImageUtilityNode(sourceId, tool, options = {}) {
@@ -3742,12 +4513,12 @@ function selectedReferences() {
     ? state.links.filter(l => l.to === selected.id).map(l => l.from)
     : [];
   const sourcePool = linkedSourceIds.length
-    ? state.nodes.filter(n => linkedSourceIds.includes(n.id))
+    ? state.nodes.filter(n => linkedSourceIds.includes(n.id) && !n.disabled)
     : state.nodes;
   const refs = sourcePool
-    .filter(n => ['image', 'video', 'audio'].includes(n.type) && n.url)
+    .filter(n => !n.disabled && ['image', 'video', 'audio'].includes(n.type) && n.url)
     .map(n => ({ kind: n.type, url: absoluteUrl(n.url), role: n.role }));
-  if (selected && ['image', 'video', 'audio'].includes(selected.type) && selected.url) {
+  if (selected && !selected.disabled && ['image', 'video', 'audio'].includes(selected.type) && selected.url) {
     const first = { kind: selected.type, url: absoluteUrl(selected.url), role: selected.role };
     return [first, ...refs.filter(r => r.url !== first.url)];
   }
@@ -4111,8 +4882,12 @@ async function downloadImageForNode(nodeId) {
 
 function linkedPromptText(nodeId) {
   const sourceIds = state.links.filter(l => l.to === nodeId).map(l => l.from);
-  const promptNode = state.nodes.find(n => sourceIds.includes(n.id) && ['prompt', 'text'].includes(n.type));
-  return promptNode?.text?.trim() || '';
+  return sourceIds
+    .map(id => state.nodes.find(n => n.id === id && !n.disabled && ['prompt', 'text'].includes(n.type)))
+    .filter(Boolean)
+    .map(node => String(node.text || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function referencesForNode(nodeId) {
@@ -4127,7 +4902,7 @@ function referencesForNode(nodeId) {
     }));
   const sourceIds = state.links.filter(l => l.to === nodeId).map(l => l.from);
   if (!sourceIds.length) return inlineRefs;
-  const pool = state.nodes.filter(n => sourceIds.includes(n.id));
+  const pool = state.nodes.filter(n => sourceIds.includes(n.id) && !n.disabled);
   const sorted = [...pool].sort((a, b) => {
     const ai = node?.refOrder?.indexOf(a.id) ?? -1;
     const bi = node?.refOrder?.indexOf(b.id) ?? -1;
@@ -4495,6 +5270,7 @@ function bindEvents() {
   let resizingPanel = null;
   let draggingAssetNode = null;
   let drawingAnnotation = null;
+  let draggingAnnotation = null;
   let draggingCompare = null;
   let last = { x: 0, y: 0 };
 
@@ -4595,13 +5371,28 @@ function bindEvents() {
   });
   els.agentSkillToggle?.addEventListener('click', event => {
     event.preventDefault();
+    renderAgentSkillMenu();
     els.agentSkillMenu?.classList.toggle('hidden');
   });
   els.agentSkillMenu?.addEventListener('click', event => {
+    const load = event.target.closest('[data-agent-skill-load]');
+    if (load) {
+      event.preventDefault();
+      els.agentSkillFileInput?.click();
+      return;
+    }
     const item = event.target.closest('[data-agent-skill]');
     if (!item) return;
     event.preventDefault();
     setAgentSkill(item.dataset.agentSkill);
+  });
+  els.agentSkillFileInput?.addEventListener('change', async () => {
+    try {
+      await importCustomSkillFiles(els.agentSkillFileInput.files || []);
+    } catch (err) {
+      setStatus(`Skill 加载失败：${err.message}`);
+    }
+    els.agentSkillFileInput.value = '';
   });
   els.agentSkillMenu?.addEventListener('dragstart', event => {
     const item = event.target.closest('[data-agent-skill]');
@@ -4674,14 +5465,33 @@ function bindEvents() {
     });
   });
 
+  window.addEventListener('blur', () => {
+    if (draggingNode || draggingGroup || draggingStage || resizingNode || resizingPanel || draggingCompare || drawingAnnotation || draggingAnnotation || state.linking) {
+      state.linking = null;
+      draggingNode = null;
+      draggingGroup = null;
+      draggingStage = false;
+      resizingNode = null;
+      resizingPanel = null;
+      draggingCompare = null;
+      drawingAnnotation = null;
+      draggingAnnotation = null;
+      clearAssetDropHighlights();
+      els.stage.classList.remove('dragging');
+      render();
+      saveCanvas();
+    }
+  });
+
   els.stage.addEventListener('contextmenu', event => {
     if (event.target.closest('#projectBoard, #materialBoard')) return;
     event.preventDefault();
     const nodeEl = event.target.closest('.node');
     state.menuNodeId = nodeEl?.dataset.id || null;
     if (nodeEl) {
-      state.selectedId = nodeEl.dataset.id;
-      state.selectedIds = [nodeEl.dataset.id];
+      const id = nodeEl.dataset.id;
+      state.selectedId = id;
+      if (!state.selectedIds.includes(id)) state.selectedIds = [id];
       state.selectedLinkId = null;
     }
     state.menuPoint = screenToWorld(event.clientX, event.clientY);
@@ -4732,6 +5542,24 @@ function bindEvents() {
       compareStage.style.setProperty('--split', `${node.compareSplit}%`);
       return;
     }
+    const annotationTextLayer = event.target.closest('[data-annotation-text-layer].active');
+    if (annotationTextLayer) {
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      const annotationItem = event.target.closest('[data-annotation-textbox-index]');
+      if (annotationItem) {
+        if (event.detail >= 2) return;
+        event.preventDefault();
+        event.stopPropagation();
+        draggingAnnotation = {
+          nodeId: node.id,
+          index: Number(annotationItem.dataset.annotationTextboxIndex),
+          last: annotationPoint(event, annotationTextLayer),
+        };
+        return;
+      }
+    }
     const annotationLayer = event.target.closest('[data-annotation-layer].active');
     if (annotationLayer) {
       event.preventDefault();
@@ -4740,16 +5568,30 @@ function bindEvents() {
       const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
       if (!node) return;
       const point = annotationPoint(event, annotationLayer);
+      const annotationItem = event.target.closest('[data-annotation-index]');
+      if (annotationItem) {
+        draggingAnnotation = {
+          nodeId: node.id,
+          index: Number(annotationItem.dataset.annotationIndex),
+          last: point,
+        };
+        return;
+      }
       if (node.annotationTool === 'text') {
-        const text = prompt('输入标注文字');
-        if (text?.trim()) {
-          node.annotations = [...(node.annotations || []), { type: 'text', text: text.trim(), x: point.x, y: point.y, color: '#ccff00' }];
-          render();
-          saveCanvas();
-        }
+        node.annotations = [...(node.annotations || []), {
+          type: 'textBox',
+          text: '输入文字',
+          x: point.x,
+          y: point.y,
+          w: 16,
+          h: 7,
+          color: node.annotationColor || '#ccff00',
+        }];
+        drawingAnnotation = { nodeId: node.id, type: 'textBox', index: node.annotations.length - 1, start: point };
+        render();
       } else {
-        node.annotations = [...(node.annotations || []), { type: 'path', points: [point], color: '#ccff00' }];
-        drawingAnnotation = { nodeId: node.id };
+        node.annotations = [...(node.annotations || []), { type: 'path', points: [point], color: node.annotationColor || '#ccff00' }];
+        drawingAnnotation = { nodeId: node.id, type: 'path' };
       }
       return;
     }
@@ -4863,7 +5705,7 @@ function bindEvents() {
       if (!state.selectedIds.includes(id)) state.selectedIds = [];
       state.selectedLinkId = null;
       const mediaPreviewTarget = event.target.closest('.image-node-preview, .video-node-preview');
-      const interactiveTarget = event.target.closest('textarea,input,select,button,audio') || (event.target.closest('video') && !mediaPreviewTarget);
+      const interactiveTarget = event.target.closest('textarea,input,select,button,audio');
       if (interactiveTarget) {
         document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
         nodeEl.classList.add('selected');
@@ -4949,6 +5791,37 @@ function bindEvents() {
     const dx = (event.clientX - last.x);
     const dy = (event.clientY - last.y);
     last = { x: event.clientX, y: event.clientY };
+    if (event.buttons === 0 && (draggingNode || draggingGroup || draggingStage || resizingNode || resizingPanel || draggingCompare || drawingAnnotation || draggingAnnotation || state.linking)) {
+      if (state.linking) {
+        state.linking = null;
+        render();
+      }
+      clearAssetDropHighlights();
+      draggingNode = null;
+      draggingGroup = null;
+      draggingStage = false;
+      resizingNode = null;
+      resizingPanel = null;
+      draggingCompare = null;
+      drawingAnnotation = null;
+      draggingAnnotation = null;
+      els.stage.classList.remove('dragging');
+      saveCanvas();
+      return;
+    }
+    const editableGridCell = event.target.closest('.grid-node-preview.editing [data-grid-cell]');
+    if (editableGridCell) {
+      const nodeEl = event.target.closest('.node');
+      if (nodeEl) {
+        state.selectedId = nodeEl.dataset.id;
+        state.selectedIds = [nodeEl.dataset.id];
+        state.selectedLinkId = null;
+        document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
+        nodeEl.classList.add('selected');
+        updateNodeInfo();
+      }
+      return;
+    }
     if (draggingAssetNode) {
       highlightAssetFilterAt(event.clientX, event.clientY);
       return;
@@ -4969,21 +5842,18 @@ function bindEvents() {
       }
       resizingNode.el.style.width = `${node.w}px`;
       resizingNode.el.style.height = `${node.h}px`;
-      const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
-      if (panel) {
-        panel.style.left = `${node.x}px`;
-        panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
-      }
+      syncParamPanelPosition(node);
       if (isAssetCandidateNode(node)) highlightAssetFilterAt(event.clientX, event.clientY);
       scheduleRenderLinks();
       return;
     }
     if (resizingPanel) {
       const node = state.nodes.find(n => n.id === resizingPanel.id);
-      node.panelW = Math.max(320, (node.panelW || resizingPanel.startW) + dx / state.scale);
+      node.panelW = Math.max(Number(node.w || 0), 320, (node.panelW || resizingPanel.startW) + dx / state.scale);
       node.panelH = Math.max(120, (node.panelH || resizingPanel.startH) + dy / state.scale);
       resizingPanel.el.style.width = `${node.panelW}px`;
       resizingPanel.el.style.minHeight = `${node.panelH}px`;
+      syncParamPanelPosition(node);
       return;
     }
     if (state.selecting) {
@@ -5010,6 +5880,29 @@ function bindEvents() {
       if (node && layer && lastAnnotation?.type === 'path') {
         lastAnnotation.points.push(annotationPoint(event, layer));
         render();
+      } else if (node && drawingAnnotation.type === 'textBox') {
+        const textLayer = document.querySelector(`.node[data-id="${drawingAnnotation.nodeId}"] [data-annotation-text-layer]`);
+        const item = node.annotations?.[drawingAnnotation.index];
+        if (textLayer && item) {
+          const point = annotationPoint(event, textLayer);
+          item.x = Math.min(drawingAnnotation.start.x, point.x);
+          item.y = Math.min(drawingAnnotation.start.y, point.y);
+          item.w = Math.max(5, Math.abs(point.x - drawingAnnotation.start.x));
+          item.h = Math.max(5, Math.abs(point.y - drawingAnnotation.start.y));
+          render();
+        }
+      }
+    } else if (draggingAnnotation) {
+      const node = state.nodes.find(n => n.id === draggingAnnotation.nodeId);
+      const layer = document.querySelector(`.node[data-id="${draggingAnnotation.nodeId}"] [data-annotation-layer]`);
+      const item = node?.annotations?.[draggingAnnotation.index];
+      if (node && layer && item) {
+        const point = annotationPoint(event, layer);
+        const adx = point.x - draggingAnnotation.last.x;
+        const ady = point.y - draggingAnnotation.last.y;
+        moveAnnotationItem(item, adx, ady);
+        draggingAnnotation.last = point;
+        render();
       }
     } else if (draggingNode) {
       const node = state.nodes.find(n => n.id === draggingNode.id);
@@ -5018,11 +5911,7 @@ function bindEvents() {
       updateGroupsForMembers([node.id]);
       draggingNode.el.style.left = `${node.x}px`;
       draggingNode.el.style.top = `${node.y}px`;
-      const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
-      if (panel) {
-        panel.style.left = `${node.x}px`;
-        panel.style.top = `${node.y + (node.h || previewHeightForNode(node)) + 12}px`;
-      }
+      syncParamPanelPosition(node);
       scheduleRenderLinks();
     } else if (draggingGroup) {
       for (const id of draggingGroup.ids) {
@@ -5047,6 +5936,28 @@ function bindEvents() {
   });
 
   document.addEventListener('mouseup', event => {
+    if (drawingAnnotation || draggingAnnotation) {
+      const focusTextBox = drawingAnnotation?.type === 'textBox'
+        ? { nodeId: drawingAnnotation.nodeId, index: drawingAnnotation.index }
+        : null;
+      drawingAnnotation = null;
+      draggingAnnotation = null;
+      render();
+      if (focusTextBox) {
+        window.setTimeout(() => {
+          const box = document.querySelector(`.node[data-id="${focusTextBox.nodeId}"] [data-annotation-textbox-index="${focusTextBox.index}"]`);
+          if (!box) return;
+          box.focus();
+          const range = document.createRange();
+          range.selectNodeContents(box);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }, 0);
+      }
+      saveCanvas();
+      return;
+    }
     if (draggingAssetNode) {
       const filter = assetFilterFromPoint(event.clientX, event.clientY);
       clearAssetDropHighlights();
@@ -5109,6 +6020,15 @@ function bindEvents() {
     }
     if (draggingNode) {
       const node = state.nodes.find(n => n.id === draggingNode.id);
+      const gridCell = gridCellFromPoint(event.clientX, event.clientY, draggingNode.el);
+      if (node && gridCell && gridCell.nodeId !== node.id && imageUrlForNode(node)) {
+        replaceGridCellFromNode(gridCell.nodeId, gridCell.index, node.id);
+        draggingNode = null;
+        draggingGroup = null;
+        draggingStage = false;
+        els.stage.classList.remove('dragging');
+        return;
+      }
       const filter = assetFilterFromPoint(event.clientX, event.clientY);
       if (node && filter && isAssetCandidateNode(node)) {
         const category = filter.dataset.assetFilter === 'all' ? 'other' : filter.dataset.assetFilter;
@@ -5173,6 +6093,25 @@ function bindEvents() {
     }
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
     if (state.projectView || state.materialView) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'g') {
+      event.preventDefault();
+      if (event.shiftKey) ungroupSelectedNodes();
+      else groupSelectedNodes();
+      return;
+    }
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'd') {
+      event.preventDefault();
+      toggleDisableSelectedNodes();
+      return;
+    }
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey && ['h', 'v'].includes(event.key.toLowerCase())) {
+      const id = state.selectedId || state.selectedIds.find(item => imageUrlForNode(state.nodes.find(n => n.id === item)));
+      if (id) {
+        event.preventDefault();
+        flipImageNode(id, event.key.toLowerCase() === 'v' ? 'vertical' : 'horizontal');
+        return;
+      }
+    }
     if (!els.directorStage?.classList.contains('hidden')) {
       const key = event.key.toLowerCase();
       if (['w', 'e', 'r'].includes(key)) {
@@ -5189,6 +6128,12 @@ function bindEvents() {
     }
     if (drawingAnnotation) {
       drawingAnnotation = null;
+      draggingAnnotation = null;
+      saveCanvas();
+      return;
+    }
+    if (draggingAnnotation) {
+      draggingAnnotation = null;
       saveCanvas();
       return;
     }
@@ -5289,6 +6234,24 @@ function bindEvents() {
 
   els.world.addEventListener('input', event => {
     const nodeEl = eventNodeElement(event.target);
+    const textBox = event.target.closest('[data-annotation-textbox-index]');
+    if (nodeEl && textBox) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
+      const item = node?.annotations?.[Number(textBox.dataset.annotationTextboxIndex)];
+      if (item?.type === 'textBox') {
+        item.text = textBox.textContent || '';
+        scheduleCanvasSave();
+      }
+      return;
+    }
+    const annotationColor = event.target.closest('[data-annotation-color]');
+    if (nodeEl && annotationColor) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
+      if (!node) return;
+      node.annotationColor = annotationColor.value || '#ccff00';
+      scheduleCanvasSave();
+      return;
+    }
     const field = event.target.dataset.field;
     if (!nodeEl || !field) return;
     const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
@@ -5323,6 +6286,40 @@ function bindEvents() {
   });
 
   els.world.addEventListener('click', event => {
+    const menuToggle = event.target.closest('.image-tool-menu > button');
+    if (!menuToggle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = menuToggle.closest('.image-tool-menu');
+    const wasOpen = menu.classList.contains('open');
+    document.querySelectorAll('.image-tool-menu.open').forEach(item => {
+      if (item !== menu) item.classList.remove('open');
+    });
+    menu.classList.toggle('open', !wasOpen);
+  });
+
+  document.addEventListener('click', event => {
+    if (event.target.closest('.image-tool-menu')) return;
+    document.querySelectorAll('.image-tool-menu.open').forEach(item => item.classList.remove('open'));
+  });
+
+  document.addEventListener('mousemove', event => {
+    document.querySelectorAll('.node.selected, .node.multi-selected').forEach(nodeEl => {
+      const tool = nodeEl.querySelector('.image-tool-strip');
+      if (!tool) return;
+      const nodeRect = nodeEl.getBoundingClientRect();
+      const toolRect = tool.getBoundingClientRect();
+      const pad = tool.querySelector('.image-tool-menu.open') ? 260 : 180;
+      const left = Math.min(nodeRect.left, toolRect.left) - pad;
+      const right = Math.max(nodeRect.right, toolRect.right) + pad;
+      const top = Math.min(nodeRect.top, toolRect.top) - pad;
+      const bottom = Math.max(nodeRect.bottom, toolRect.bottom) + pad;
+      const far = event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
+      nodeEl.classList.toggle('tool-far', far);
+    });
+  });
+
+  els.world.addEventListener('click', event => {
     const mention = event.target.closest('[data-insert-ref-mention]');
     if (!mention) return;
     event.preventDefault();
@@ -5343,6 +6340,14 @@ function bindEvents() {
 
   els.world.addEventListener('change', event => {
     const nodeEl = eventNodeElement(event.target);
+    const annotationColor = event.target.closest('[data-annotation-color]');
+    if (nodeEl && annotationColor) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
+      if (!node) return;
+      node.annotationColor = annotationColor.value || '#ccff00';
+      saveCanvas();
+      return;
+    }
     const field = event.target.dataset.field;
     if (!nodeEl || !field) return;
     const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
@@ -5480,6 +6485,21 @@ function bindEvents() {
   });
 
   els.world.addEventListener('dragstart', event => {
+    const gridCell = event.target.closest('[data-grid-cell]');
+    if (gridCell) {
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node?.gridEditing) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.setData('application/x-ai-canvas-grid-cell', JSON.stringify({
+        nodeId: node.id,
+        index: Number(gridCell.dataset.gridCell),
+      }));
+      event.dataTransfer.effectAllowed = 'copyMove';
+      return;
+    }
     const assetDrag = event.target.closest('[data-drag-asset-node]');
     if (assetDrag) {
       const payload = JSON.stringify({ type: 'asset-node', nodeId: assetDrag.dataset.dragAssetNode });
@@ -5503,10 +6523,54 @@ function bindEvents() {
   });
 
   els.world.addEventListener('dragover', event => {
-    if (event.target.closest('[data-ref-index]')) event.preventDefault();
+    if (event.target.closest('[data-ref-index], [data-grid-cell]')) event.preventDefault();
+    if ([...(event.dataTransfer?.types || [])].includes('application/x-ai-canvas-grid-cell')) event.preventDefault();
   });
 
   els.world.addEventListener('drop', event => {
+    const gridCell = event.target.closest('[data-grid-cell]');
+    if (gridCell) {
+      event.preventDefault();
+      const nodeEl = eventNodeElement(event.target);
+      const targetNode = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!targetNode || targetNode.type !== 'grid') return;
+      const targetIndex = Number(gridCell.dataset.gridCell);
+      const gridPayload = event.dataTransfer.getData('application/x-ai-canvas-grid-cell');
+      if (gridPayload) {
+        try {
+          const data = JSON.parse(gridPayload);
+          const sourceNode = state.nodes.find(n => n.id === data.nodeId);
+          const sourceItems = sourceNode?.gridItems;
+          if (!sourceItems?.[data.index]) return;
+          const [moved] = sourceItems.splice(data.index, 1);
+          if (sourceNode.id === targetNode.id) {
+            sourceItems.splice(targetIndex, 0, moved);
+          } else {
+            targetNode.gridItems[targetIndex] = moved;
+          }
+          render();
+          saveCanvas();
+          setStatus('分镜顺序已更新');
+        } catch {
+          // ignore malformed drags
+        }
+        return;
+      }
+      const sourceNodeId = assetNodeIdFromDrop(event);
+      if (sourceNodeId) replaceGridCellFromNode(targetNode.id, targetIndex, sourceNodeId);
+      return;
+    }
+    const gridPayload = event.dataTransfer.getData('application/x-ai-canvas-grid-cell');
+    if (gridPayload) {
+      event.preventDefault();
+      try {
+        const data = JSON.parse(gridPayload);
+        createImageNodeFromGridCell(data.nodeId, data.index, screenToWorld(event.clientX, event.clientY));
+      } catch {
+        // ignore malformed drags
+      }
+      return;
+    }
     const card = event.target.closest('[data-ref-index]');
     if (!card) return;
     event.preventDefault();
@@ -5573,12 +6637,78 @@ function bindEvents() {
   });
 
   els.world.addEventListener('click', event => {
+    const assistBtn = event.target.closest('[data-image-assist]');
+    if (!assistBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    if (!nodeEl?.dataset.id) return;
+    openImageAssistPanel(nodeEl.dataset.id, assistBtn.dataset.imageAssist);
+  });
+
+  els.world.addEventListener('click', event => {
+    const layoutBtn = event.target.closest('[data-selection-layout]');
+    if (!layoutBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    createGridFromSelectedImages(layoutBtn.dataset.selectionLayout);
+  });
+
+  els.world.addEventListener('click', event => {
     const gridBtn = event.target.closest('[data-image-grid]');
     if (!gridBtn) return;
     event.preventDefault();
     event.stopPropagation();
-    const nodeEl = eventNodeElement(event.target);
+    const nodeEl = eventNodeElement(gridBtn);
+    if (!nodeEl?.dataset.id) return;
     cropImageGrid(nodeEl.dataset.id, Number(gridBtn.dataset.imageGrid || 9));
+  });
+
+  els.world.addEventListener('click', event => {
+    const nodeEl = eventNodeElement(event.target);
+    if (!nodeEl?.dataset.id) return;
+    const gridNode = state.nodes.find(n => n.id === nodeEl.dataset.id);
+    if (gridNode?.type !== 'grid') return;
+    const layout = event.target.closest('[data-grid-layout]');
+    if (layout) {
+      event.preventDefault();
+      event.stopPropagation();
+      setGridLayout(gridNode.id, layout.dataset.gridLayout);
+      return;
+    }
+    if (event.target.closest('[data-grid-download]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadGridItems(gridNode.id);
+      return;
+    }
+    if (event.target.closest('[data-grid-edit]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleGridEditing(gridNode.id);
+      return;
+    }
+    if (event.target.closest('[data-grid-split]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      splitGridNode(gridNode.id);
+      return;
+    }
+    if (event.target.closest('[data-grid-clear]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearGridNode(gridNode.id);
+    }
+  });
+
+  els.world.addEventListener('click', event => {
+    const flipBtn = event.target.closest('[data-image-flip]');
+    if (!flipBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(flipBtn);
+    if (!nodeEl?.dataset.id) return;
+    flipImageNode(nodeEl.dataset.id, flipBtn.dataset.imageFlip);
   });
 
   els.world.addEventListener('click', event => {
@@ -5593,6 +6723,23 @@ function bindEvents() {
       node.annotationTool = tool.dataset.annotationTool;
       render();
       saveCanvas();
+      return;
+    }
+    const save = event.target.closest('[data-annotation-save]');
+    if (save) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeEl = eventNodeElement(event.target);
+      const node = state.nodes.find(n => n.id === nodeEl?.dataset.id);
+      if (!node) return;
+      drawingAnnotation = null;
+      draggingAnnotation = null;
+      node.annotationMode = false;
+      node.annotationTool = 'brush';
+      document.querySelectorAll('.image-tool-menu.open').forEach(item => item.classList.remove('open'));
+      render();
+      saveCanvas();
+      setStatus('标注已保存，已退出画笔/文字编辑');
       return;
     }
     const clear = event.target.closest('[data-annotation-clear]');
@@ -6067,10 +7214,16 @@ function bindEvents() {
       if (action === 'extract-script') extractTalkingScript();
       if (action === 'rewrite-script') rewriteTalkingScript();
       if (action === 'upload-audio') els.materialBoard.querySelector('[data-talking-audio-input]')?.click();
-      if (action === 'preset-audio') usePresetTalkingAudio();
+      if (action === 'preset-audio') {
+        syncTalkingAgentFromBoard();
+        usePresetTalkingAudio();
+      }
       if (action === 'generate-audio') createTalkingAudioTaskNode();
       if (action === 'upload-avatar') els.materialBoard.querySelector('[data-talking-avatar-input]')?.click();
-      if (action === 'preset-avatar') usePresetTalkingAvatar();
+      if (action === 'preset-avatar') {
+        syncTalkingAgentFromBoard();
+        usePresetTalkingAvatar();
+      }
       if (action === 'create-speaking-video') createTalkingSpeakingVideoNode();
       if (action === 'run-all') runTalkingAgentWorkflow();
       return;
@@ -6188,6 +7341,10 @@ function bindEvents() {
       createPromptCategory();
       return;
     }
+    if (event.target.closest('[data-preset-category-rename]')) {
+      renamePromptCategory();
+      return;
+    }
     if (event.target.closest('[data-preset-category-delete]')) {
       deletePromptCategory();
       return;
@@ -6234,8 +7391,19 @@ function bindEvents() {
       avatarInput.value = '';
       return;
     }
-    if (event.target.closest('[data-talking-field]')) {
+    const talkingField = event.target.closest('[data-talking-field]');
+    if (talkingField) {
       syncTalkingAgentFromBoard();
+      if (talkingField.dataset.talkingField === 'presetAudio') {
+        if (talkingField.value) usePresetTalkingAudio(talkingField.value);
+        else renderMaterialBoard();
+        return;
+      }
+      if (talkingField.dataset.talkingField === 'presetAvatar') {
+        if (talkingField.value) usePresetTalkingAvatar(talkingField.value);
+        else renderMaterialBoard();
+        return;
+      }
       return;
     }
     const input = event.target.closest('[data-clone-video-input]');
@@ -6259,6 +7427,13 @@ function bindEvents() {
   });
 
   els.materialBoard?.addEventListener('dblclick', event => {
+    const presetCategory = event.target.closest('[data-preset-category-id]');
+    if (presetCategory && state.materialView === 'prompts') {
+      event.preventDefault();
+      event.stopPropagation();
+      renamePromptCategory(presetCategory.dataset.presetCategoryId);
+      return;
+    }
     if (!shouldMaterialUploadFromEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -6266,6 +7441,13 @@ function bindEvents() {
   });
 
   els.materialBoard?.addEventListener('contextmenu', event => {
+    const presetCategory = event.target.closest('[data-preset-category-id]');
+    if (presetCategory && state.materialView === 'prompts') {
+      event.preventDefault();
+      event.stopPropagation();
+      renamePromptCategory(presetCategory.dataset.presetCategoryId);
+      return;
+    }
     if (!['materials', 'assets'].includes(state.materialView)) return;
     const card = event.target.closest('[data-asset]');
     if (!card) {
@@ -6702,6 +7884,11 @@ function selectedRealNodes() {
   return state.nodes.filter(n => state.selectedIds.includes(n.id) && n.type !== 'group');
 }
 
+function selectedGroupNodes() {
+  const ids = new Set([...(state.selectedIds || []), state.selectedId].filter(Boolean));
+  return state.nodes.filter(n => ids.has(n.id) && n.type === 'group');
+}
+
 function boundsForNodes(nodes) {
   const minX = Math.min(...nodes.map(n => n.x));
   const minY = Math.min(...nodes.map(n => n.y));
@@ -6734,9 +7921,54 @@ function arrangeSelectedNodes() {
   setStatus(`已整理 ${nodes.length} 个节点`);
 }
 
+function layoutSelectedNodes(layout = 'grid') {
+  const nodes = selectedRealNodes().filter(node => node.type !== 'group');
+  if (nodes.length < 2) {
+    setStatus('请先框选两个以上节点再使用布局');
+    return;
+  }
+  const sorted = [...nodes].sort((a, b) => a.y === b.y ? a.x - b.x : a.y - b.y);
+  const bounds = boundsForNodes(sorted);
+  const gap = 28;
+  if (layout === 'horizontal') {
+    let x = bounds.minX;
+    sorted.forEach(node => {
+      node.x = Math.round(x);
+      node.y = Math.round(bounds.minY);
+      x += (node.w || 220) + gap;
+    });
+  } else if (layout === 'vertical') {
+    let y = bounds.minY;
+    sorted.forEach(node => {
+      node.x = Math.round(bounds.minX);
+      node.y = Math.round(y);
+      y += (node.h || 120) + gap;
+    });
+  } else {
+    const columns = Math.ceil(Math.sqrt(sorted.length));
+    const maxW = Math.max(...sorted.map(node => node.w || 220));
+    const maxH = Math.max(...sorted.map(node => node.h || 120));
+    const cell = Math.max(maxW, maxH) + gap;
+    sorted.forEach((node, index) => {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      node.x = Math.round(bounds.minX + col * cell);
+      node.y = Math.round(bounds.minY + row * cell);
+    });
+  }
+  updateGroupsForMembers(sorted.map(node => node.id));
+  render();
+  saveCanvas();
+  const label = layout === 'horizontal' ? '水平一排' : layout === 'vertical' ? '垂直一列' : '宫格网格';
+  setStatus(`已按${label}排列 ${sorted.length} 个节点`);
+}
+
 function groupSelectedNodes() {
   const nodes = selectedRealNodes();
-  if (nodes.length < 2) return;
+  if (nodes.length < 2) {
+    setStatus('请先选择两个以上节点再打组');
+    return;
+  }
   const bounds = boundsForNodes(nodes);
   const padding = 22;
   const group = {
@@ -6754,7 +7986,55 @@ function groupSelectedNodes() {
   state.selectedIds = [group.id];
   render();
   saveCanvas();
-  setStatus(`Grouped ${nodes.length} nodes`);
+  setStatus(`已打组 ${nodes.length} 个节点`);
+}
+
+function ungroupSelectedNodes() {
+  const groups = selectedGroupNodes();
+  if (!groups.length) {
+    setStatus('请先选择一个分组再解组');
+    return;
+  }
+  const memberIds = [...new Set(groups.flatMap(group => group.members || []))];
+  state.nodes = state.nodes.filter(node => !groups.some(group => group.id === node.id));
+  state.links = state.links.filter(link => state.nodes.some(node => node.id === link.from) && state.nodes.some(node => node.id === link.to));
+  state.selectedIds = memberIds.filter(id => state.nodes.some(node => node.id === id));
+  state.selectedId = state.selectedIds[0] || null;
+  state.selectedLinkId = null;
+  render();
+  saveCanvas();
+  setStatus(`已解组 ${groups.length} 个分组`);
+}
+
+function toggleGroupSelection() {
+  if (selectedGroupNodes().length) {
+    ungroupSelectedNodes();
+  } else {
+    groupSelectedNodes();
+  }
+}
+
+function disableTargetIdsForSelection() {
+  const ids = new Set([...(state.selectedIds || []), state.selectedId].filter(Boolean));
+  for (const group of selectedGroupNodes()) {
+    ids.add(group.id);
+    for (const memberId of group.members || []) ids.add(memberId);
+  }
+  return [...ids].filter(id => state.nodes.some(node => node.id === id));
+}
+
+function toggleDisableSelectedNodes() {
+  const ids = disableTargetIdsForSelection();
+  if (!ids.length) {
+    setStatus('请先选中一个节点或分组');
+    return;
+  }
+  const nodes = state.nodes.filter(node => ids.includes(node.id));
+  const shouldDisable = nodes.some(node => !node.disabled);
+  for (const node of nodes) node.disabled = shouldDisable;
+  render();
+  saveCanvas();
+  setStatus(shouldDisable ? `已临时隐藏 ${nodes.length} 个节点` : `已恢复 ${nodes.length} 个节点`);
 }
 
 function updateGroupsForMembers(memberIds = []) {
@@ -6852,6 +8132,8 @@ async function init() {
   await loadConfig();
   loadGridSettings();
   loadPromptPresets();
+  loadCustomSkills();
+  renderAgentSkillMenu();
   applyTransform();
   bindEvents();
   loadCanvas();
