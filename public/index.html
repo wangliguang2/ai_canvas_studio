@@ -137,9 +137,11 @@
           <select id="agentModel" class="agent-model-inline" title="智能体大模型">
             <option value="gpt-4.1-mini">GPT-4.1 mini</option>
             <option value="gpt-4o-mini">GPT-4o mini</option>
-            <option value="doubao-pro">豆包 Pro</option>
-            <option value="qwen-max">通义千问 Max</option>
-            <option value="deepseek-chat">DeepSeek Chat</option>
+            <option value="doubao" selected>豆包</option>
+            <option value="qwen">通义千问</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="kimi">Kimi</option>
+            <option value="zhipu">智谱 AI</option>
           </select>
           <div class="agent-skill-picker">
             <button type="button" id="agentSkillToggle" class="agent-skill-toggle">✦ 加载 Skill</button>
@@ -166,7 +168,7 @@
           <button type="button" data-settings-tab="image">生图模型</button>
           <button type="button" data-settings-tab="i2i">图生图</button>
           <button type="button" data-settings-tab="multi">多参模块</button>
-          <button type="button" data-settings-tab="agent">智能体</button>
+          <button type="button" data-settings-tab="vendors">大模型厂家</button>
         </div>
         <div class="settings-grid">
           <div class="settings-video-ark active" data-settings-panel="ark">
@@ -281,24 +283,99 @@
               <label><input id="multiWebSearch" type="checkbox"> 联网搜索</label>
             </div>
           </div>
-          <div class="settings-agent" data-settings-panel="agent">
+          <div class="settings-llm-vendors" data-settings-panel="vendors">
             <h3 class="settings-provider-title">
-              <label>智能体模型</label>
+              <label>大模型厂家</label>
             </h3>
-            <p class="settings-note settings-note-right">OpenAI 兼容接口，用来理解资产、拆工作流、改写提示词。</p>
-            <label>Agent API 地址</label>
-            <input id="agentBaseUrl" placeholder="https://api.openai.com/v1">
-            <label>Agent API Key</label>
-            <div class="secret-row">
-              <input id="agentApiKey" type="password">
-              <button type="button" data-toggle-secret="#agentApiKey">显示</button>
+            <p class="settings-note">预留常用国产大模型厂商的 OpenAI 兼容配置。后续智能体可按厂商切换模型调用。</p>
+            <div class="vendor-settings-grid">
+              <section class="vendor-card">
+                <h4>ChatGPT / OpenAI</h4>
+                <label>API 地址</label>
+                <input id="agentBaseUrl" placeholder="https://api.openai.com/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="agentApiKey" type="password">
+                  <button type="button" data-toggle-secret="#agentApiKey">显示</button>
+                </div>
+                <label>工作流模型</label>
+                <input id="agentModelName" placeholder="gpt-4.1-mini">
+                <label>图像理解模型</label>
+                <input id="agentVisionModel" placeholder="gpt-4.1-mini">
+                <label>提示词改写模型</label>
+                <input id="agentPromptModel" placeholder="gpt-4.1-mini">
+              </section>
+              <section class="vendor-card">
+                <h4>豆包 / 火山方舟</h4>
+                <label>API 地址</label>
+                <input id="vendorDoubaoBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="vendorDoubaoApiKey" type="password">
+                  <button type="button" data-toggle-secret="#vendorDoubaoApiKey">显示</button>
+                </div>
+                <label>默认模型</label>
+                <input id="vendorDoubaoModel" placeholder="doubao-1-5-pro-32k">
+                <label>备注 / 官网</label>
+                <input id="vendorDoubaoNote" placeholder="https://console.volcengine.com/ark">
+              </section>
+              <section class="vendor-card">
+                <h4>通义千问 / 阿里云百炼</h4>
+                <label>API 地址</label>
+                <input id="vendorQwenBaseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="vendorQwenApiKey" type="password">
+                  <button type="button" data-toggle-secret="#vendorQwenApiKey">显示</button>
+                </div>
+                <label>默认模型</label>
+                <input id="vendorQwenModel" placeholder="qwen-plus">
+                <label>备注 / 官网</label>
+                <input id="vendorQwenNote" placeholder="https://bailian.console.aliyun.com">
+              </section>
+              <section class="vendor-card">
+                <h4>DeepSeek</h4>
+                <label>API 地址</label>
+                <input id="vendorDeepseekBaseUrl" placeholder="https://api.deepseek.com/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="vendorDeepseekApiKey" type="password">
+                  <button type="button" data-toggle-secret="#vendorDeepseekApiKey">显示</button>
+                </div>
+                <label>默认模型</label>
+                <input id="vendorDeepseekModel" placeholder="deepseek-chat">
+                <label>备注 / 官网</label>
+                <input id="vendorDeepseekNote" placeholder="https://platform.deepseek.com">
+              </section>
+              <section class="vendor-card">
+                <h4>Kimi / 月之暗面</h4>
+                <label>API 地址</label>
+                <input id="vendorKimiBaseUrl" placeholder="https://api.moonshot.cn/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="vendorKimiApiKey" type="password">
+                  <button type="button" data-toggle-secret="#vendorKimiApiKey">显示</button>
+                </div>
+                <label>默认模型</label>
+                <input id="vendorKimiModel" placeholder="moonshot-v1-8k">
+                <label>备注 / 官网</label>
+                <input id="vendorKimiNote" placeholder="https://platform.moonshot.cn">
+              </section>
+              <section class="vendor-card">
+                <h4>智谱 AI</h4>
+                <label>API 地址</label>
+                <input id="vendorZhipuBaseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="vendorZhipuApiKey" type="password">
+                  <button type="button" data-toggle-secret="#vendorZhipuApiKey">显示</button>
+                </div>
+                <label>默认模型</label>
+                <input id="vendorZhipuModel" placeholder="glm-4-flash">
+                <label>备注 / 官网</label>
+                <input id="vendorZhipuNote" placeholder="https://open.bigmodel.cn">
+              </section>
             </div>
-            <label>工作流模型</label>
-            <input id="agentModelName" placeholder="gpt-4.1-mini">
-            <label>图像理解模型</label>
-            <input id="agentVisionModel" placeholder="gpt-4.1-mini">
-            <label>提示词改写模型</label>
-            <input id="agentPromptModel" placeholder="deepseek-chat">
           </div>
         </div>
         <button id="saveSettings" class="primary">保存设置</button>

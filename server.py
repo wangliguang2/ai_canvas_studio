@@ -93,6 +93,38 @@ DEFAULT_CONFIG = {
             "visionModel": "gpt-4.1-mini",
             "promptModel": "deepseek-chat",
         },
+        "llmVendors": {
+            "doubao": {
+                "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+                "apiKey": "",
+                "modelName": "doubao-1-5-pro-32k",
+                "note": "https://console.volcengine.com/ark",
+            },
+            "qwen": {
+                "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "apiKey": "",
+                "modelName": "qwen-plus",
+                "note": "https://bailian.console.aliyun.com",
+            },
+            "deepseek": {
+                "baseUrl": "https://api.deepseek.com/v1",
+                "apiKey": "",
+                "modelName": "deepseek-chat",
+                "note": "https://platform.deepseek.com",
+            },
+            "kimi": {
+                "baseUrl": "https://api.moonshot.cn/v1",
+                "apiKey": "",
+                "modelName": "moonshot-v1-8k",
+                "note": "https://platform.moonshot.cn",
+            },
+            "zhipu": {
+                "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+                "apiKey": "",
+                "modelName": "glm-4-flash",
+                "note": "https://open.bigmodel.cn",
+            },
+        },
     },
     "models": {
         "video": ["doubao-seedance-2-0-260"],
@@ -101,6 +133,7 @@ DEFAULT_CONFIG = {
     "defaults": {
         "videoModel": "doubao-seedance-2-0-260",
         "videoProvider": "ark",
+        "agentProvider": "doubao",
         "imageModel": "banana",
         "ratio": "16:9",
         "duration": 8,
@@ -134,11 +167,12 @@ def normalize_config(config: dict) -> None:
     apis.setdefault("i2i", {})
     apis.setdefault("multimodal", {})
     apis.setdefault("agent", {})
+    apis.setdefault("llmVendors", {})
     defaults = config.setdefault("defaults", {})
     models = config.setdefault("models", {})
+    ark = apis["ark"]
     models["video"] = [ark.get("modelName") or "doubao-seedance-2-0-260"]
     defaults["videoProvider"] = "ark"
-    ark = apis["ark"]
     ark.setdefault("baseUrl", "https://ark.cn-beijing.volces.com/api/v3")
     ark.setdefault("website", "https://ark.cn-beijing.volces.com")
     ark.setdefault("modelName", "doubao-seedance-2-0-260")
@@ -179,6 +213,11 @@ def normalize_config(config: dict) -> None:
     agent.setdefault("modelName", "gpt-4.1-mini")
     agent.setdefault("visionModel", "gpt-4.1-mini")
     agent.setdefault("promptModel", "deepseek-chat")
+    vendors = apis["llmVendors"]
+    for key, defaults_vendor in DEFAULT_CONFIG["apis"]["llmVendors"].items():
+        vendor = vendors.setdefault(key, {})
+        for field, value in defaults_vendor.items():
+            vendor.setdefault(field, value)
 
 
 def deep_merge(base: dict, patch: dict) -> dict:
@@ -191,8 +230,21 @@ def deep_merge(base: dict, patch: dict) -> dict:
     return merged
 
 
+def strip_secret_keys(config: dict) -> dict:
+    clean = json.loads(json.dumps(config))
+    apis = clean.get("apis") or {}
+    for value in apis.values():
+        if isinstance(value, dict) and "apiKey" in value:
+            value["apiKey"] = ""
+    vendors = apis.get("llmVendors") or {}
+    for value in vendors.values():
+        if isinstance(value, dict):
+            value["apiKey"] = ""
+    return clean
+
+
 def save_config(config: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    CONFIG_PATH.write_text(json.dumps(strip_secret_keys(config), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def provider_root(api: dict) -> str:
@@ -1062,16 +1114,19 @@ def agent_endpoint(base_url: str) -> str:
     root = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
     if root.endswith("/chat/completions") or root.endswith("/responses"):
         return root
-    if root.endswith("/v1"):
+    if re.search(r"/(?:api/)?v\d+$", root):
         return f"{root}/chat/completions"
     return f"{root}/v1/chat/completions"
 
 
 def call_agent_model(config: dict, body: dict) -> dict:
+    override = body.get("agentOverride") or {}
     agent = config.get("apis", {}).get("agent", {})
+    if isinstance(override, dict) and (override.get("apiKey") or override.get("baseUrl") or override.get("modelName")):
+        agent = {**agent, **override}
     api_key = (agent.get("apiKey") or "").strip()
     if not api_key:
-        raise ValueError("Agent API Key 为空。请在设置 > 智能体 填写 GPT/OpenAI 兼容 Key。")
+        raise ValueError("当前智能体模型的 API Key 为空。请在设置里填写对应厂家或智能体板块的 Key。")
     model = body.get("model") or agent.get("modelName") or "gpt-4.1-mini"
     skill = body.get("skill") or {}
     refs = body.get("references") or []
@@ -1095,8 +1150,9 @@ def call_agent_model(config: dict, body: dict) -> dict:
         ],
         "temperature": 0.7,
     }
+    endpoint = agent_endpoint(agent.get("baseUrl") or "https://api.openai.com/v1")
     res = requests.post(
-        agent_endpoint(agent.get("baseUrl") or "https://api.openai.com/v1"),
+        endpoint,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json=payload,
         timeout=120,
@@ -1108,7 +1164,8 @@ def call_agent_model(config: dict, body: dict) -> dict:
     if not res.ok:
         err = data.get("error", {})
         message = err.get("message") if isinstance(err, dict) else err
-        raise RuntimeError(message or f"Agent HTTP {res.status_code}")
+        detail = message or f"Agent HTTP {res.status_code}"
+        raise RuntimeError(f"{detail}\n请求地址：{endpoint}\n模型：{model}")
     text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content")) or data.get("output_text") or ""
     return {"ok": True, "text": text, "model": model, "raw": data}
 

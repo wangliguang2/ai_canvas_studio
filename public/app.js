@@ -176,6 +176,39 @@ const AGENT_BUILTIN_SKILLS = [
   ['browser', '页面分析', '网页资料整理和页面理解'],
 ];
 
+const LLM_VENDOR_DEFAULTS = {
+  doubao: {
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKey: '',
+    modelName: 'doubao-1-5-pro-32k',
+    note: 'https://console.volcengine.com/ark',
+  },
+  qwen: {
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKey: '',
+    modelName: 'qwen-plus',
+    note: 'https://bailian.console.aliyun.com',
+  },
+  deepseek: {
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKey: '',
+    modelName: 'deepseek-chat',
+    note: 'https://platform.deepseek.com',
+  },
+  kimi: {
+    baseUrl: 'https://api.moonshot.cn/v1',
+    apiKey: '',
+    modelName: 'moonshot-v1-8k',
+    note: 'https://platform.moonshot.cn',
+  },
+  zhipu: {
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKey: '',
+    modelName: 'glm-4-flash',
+    note: 'https://open.bigmodel.cn',
+  },
+};
+
 const TALKING_PRESET_AUDIOS = [
   ['zhenhuan-mp3', '甄嬛.MP3'],
   ['sweet-female-flac', '甜美女声.flac'],
@@ -401,19 +434,24 @@ function restoreAgentHistory(index) {
   setStatus(`已回退到：${item.label}`);
 }
 
-function appendAgentLog(title, body = '') {
+function agentLogBodyHtml(body = '') {
+  return escapeHtml(body).replace(/\n/g, '<br>');
+}
+
+function appendAgentLog(title, body = '', options = {}) {
   if (!els.agentLog) return;
   const empty = els.agentLog.querySelector('.agent-log-empty');
   if (empty) empty.remove();
   const item = document.createElement('article');
-  item.className = 'agent-log-item';
+  item.className = `agent-log-item ${options.role ? `agent-log-${options.role}` : ''}`.trim();
   item.innerHTML = `
     <strong>${escapeHtml(title)}</strong>
-    ${body ? `<p>${escapeHtml(body)}</p>` : ''}
+    ${body ? `<p>${agentLogBodyHtml(body)}</p>` : ''}
     <time>${formatAgentHistoryTime(Date.now())}</time>
   `;
   els.agentLog.appendChild(item);
   els.agentLog.scrollTop = els.agentLog.scrollHeight;
+  return item;
 }
 
 function renderAgentMentionPanel() {
@@ -655,17 +693,74 @@ function addAgentReferenceNodes(start) {
   return nodes;
 }
 
+function agentVendorForSelection(value = '') {
+  const key = String(value || '').toLowerCase();
+  if (['doubao', 'qwen', 'deepseek', 'kimi', 'zhipu'].includes(key)) return key;
+  if (key.includes('doubao') || key.includes('ark')) return 'doubao';
+  if (key.includes('qwen') || key.includes('tongyi')) return 'qwen';
+  if (key.includes('deepseek')) return 'deepseek';
+  if (key.includes('kimi') || key.includes('moonshot')) return 'kimi';
+  if (key.includes('zhipu') || key.includes('glm')) return 'zhipu';
+  return '';
+}
+
+function settingsInputValue(selector, fallback = '') {
+  const input = document.querySelector(selector);
+  const value = input?.value?.trim?.();
+  return value || fallback || '';
+}
+
+function activeAgentConfig() {
+  const selected = els.agentModel?.value || state.config?.apis?.agent?.modelName || 'gpt-4.1-mini';
+  const vendor = agentVendorForSelection(selected);
+  if (vendor) {
+    const item = state.config?.apis?.llmVendors?.[vendor] || LLM_VENDOR_DEFAULTS[vendor] || {};
+    return {
+      provider: vendor,
+      baseUrl: settingsInputValue(vendorInputId(vendor, 'baseUrl'), item.baseUrl),
+      apiKey: settingsInputValue(vendorInputId(vendor, 'apiKey'), item.apiKey),
+      modelName: settingsInputValue(vendorInputId(vendor, 'modelName'), item.modelName || selected),
+    };
+  }
+  const agent = state.config?.apis?.agent || {};
+  const direct = {
+    provider: 'agent',
+    baseUrl: settingsInputValue('#agentBaseUrl', agent.baseUrl || 'https://api.openai.com/v1'),
+    apiKey: settingsInputValue('#agentApiKey', agent.apiKey),
+    modelName: selected || settingsInputValue('#agentModelName', agent.modelName || 'gpt-4.1-mini'),
+  };
+  if ((direct.apiKey || '').trim()) return direct;
+  for (const key of ['deepseek', 'doubao', 'qwen', 'kimi', 'zhipu']) {
+    const item = state.config?.apis?.llmVendors?.[key] || LLM_VENDOR_DEFAULTS[key] || {};
+    const fallback = {
+      provider: key,
+      baseUrl: settingsInputValue(vendorInputId(key, 'baseUrl'), item.baseUrl),
+      apiKey: settingsInputValue(vendorInputId(key, 'apiKey'), item.apiKey),
+      modelName: settingsInputValue(vendorInputId(key, 'modelName'), item.modelName),
+    };
+    if ((fallback.apiKey || '').trim()) return fallback;
+  }
+  return direct;
+}
+
 function agentApiConfigured() {
-  return !!(state.config?.apis?.agent?.apiKey || '').trim();
+  return !!(activeAgentConfig().apiKey || '').trim();
 }
 
 async function callAgentModel(prompt) {
+  const active = activeAgentConfig();
   const res = await fetch('/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt,
-      model: els.agentModel?.value || state.config?.apis?.agent?.modelName || 'gpt-4.1-mini',
+      model: active.modelName,
+      agentProvider: active.provider,
+      agentOverride: {
+        baseUrl: active.baseUrl,
+        apiKey: active.apiKey,
+        modelName: active.modelName,
+      },
       runMode: state.agentRunMode,
       skill: agentSkillMeta(state.agentSkill),
       references: state.agentRefs.map((ref, index) => ({
@@ -688,58 +783,26 @@ async function executeAgentCommand() {
     return;
   }
   const sendButton = document.querySelector('.agent-send');
+  appendAgentLog('你', prompt, { role: 'user' });
+  recordAgentHistory('询问智能体', prompt.slice(0, 42));
   if (agentApiConfigured()) {
     try {
       sendButton?.classList.add('is-running');
-      recordAgentHistory('询问智能体', prompt.slice(0, 42));
-      appendAgentLog('正在发送给智能体', `模型：${els.agentModel?.value || 'GPT'}；Skill：${agentSkillLabel(state.agentSkill)}；参考图：${state.agentRefs.length} 张`);
       const data = await callAgentModel(prompt);
-      appendAgentLog(`${data.model || els.agentModel?.value || 'GPT'} 回复`, data.text || '智能体没有返回文本');
+      appendAgentLog('智能体', data.text || '智能体没有返回文本', { role: 'assistant' });
       setStatus('智能体已回复');
       return;
     } catch (err) {
-      appendAgentLog('智能体调用失败', `${err.message}\n\n已退回为画布执行节点，你也可以检查设置里的 Agent API Key。`);
+      const active = activeAgentConfig();
+      appendAgentLog('智能体调用失败', `${err.message}\n\n当前使用：${active.provider} / ${active.modelName}\n请检查该厂家设置里的 API 地址、API Key 和模型名。`, { role: 'error' });
       setStatus(`智能体调用失败：${err.message}`);
+      return;
     } finally {
       sendButton?.classList.remove('is-running');
     }
   }
-  recordAgentHistory('执行智能体', prompt.slice(0, 42));
-  appendAgentLog('已生成执行节点', `模式：${state.agentRunMode}；Skill：${agentSkillLabel(state.agentSkill)}；参考图：${state.agentRefs.length} 张`);
-  const start = agentCanvasAnchor();
-  const promptNode = addNode('text', start.x, start.y, {
-    title: state.agentMode === 'agent' ? '智能体任务' : '主提示词',
-    text: prompt,
-    w: 260,
-    h: 150,
-  });
-  const refs = addAgentReferenceNodes({ x: start.x - 270, y: start.y });
-  const targetType = state.agentMode === 'video'
-    ? (refs.length ? 'i2v' : 't2v')
-    : state.agentMode === 'image'
-      ? (refs.length ? 'i2i' : 't2i')
-      : state.agentMode === 'mimic'
-        ? (refs.length ? 'i2v' : 'script')
-        : 'script';
-  const skillLine = `Skill 模块：${agentSkillLabel(state.agentSkill)}`;
-  const target = addNode(targetType, start.x + 330, start.y, {
-    title: ['agent', 'skill'].includes(state.agentMode) ? 'Agent 执行计划' : state.agentMode === 'mimic' ? '动作模仿任务' : typeNames[targetType],
-    text: ['agent', 'skill'].includes(state.agentMode)
-      ? `任务：${prompt}\n\n${skillLine}\n运行模式：${state.agentRunMode}\n\n执行建议：\n1. 读取画布资产、参考图和提示词资产\n2. 根据 Skill 模块拆分为可执行步骤\n3. 输出提示词、节点连接和生成参数\n4. 用户确认后执行生成`
-      : state.agentMode === 'mimic'
-        ? `动作模仿任务：${prompt}\n\n${skillLine}\n请分析参考视频/图片里的动作节奏、镜头、姿态关键帧，并迁移到目标角色。`
-      : prompt,
-    w: targetType === 'script' ? 360 : ['t2v', 'i2v'].includes(targetType) ? 360 : 520,
-    h: targetType === 'script' ? 260 : undefined,
-  });
-  state.links.push({ id: uid('link'), from: promptNode.id, to: target.id });
-  refs.forEach(ref => state.links.push({ id: uid('link'), from: ref.id, to: target.id }));
-  state.selectedId = target.id;
-  state.selectedIds = [target.id];
-  state.activeParamNodeId = isGeneratorType(target.type) ? target.id : null;
-  render();
-  saveCanvas();
-  setStatus(`${agentModeLabel()} 已生成画布节点，可继续调整后执行`);
+  appendAgentLog('智能体未配置', '当前下拉框选择的模型没有可用 API Key。GPT 请填“大模型厂家”里的 ChatGPT 卡片；豆包、千问、DeepSeek、Kimi、智谱请填对应厂家卡片。', { role: 'error' });
+  setStatus('智能体 API Key 未填写');
 }
 
 function setDirectorView(view = 'third') {
@@ -918,8 +981,20 @@ function localUserConfig() {
   }
 }
 
+function configWithoutSecrets(config) {
+  const clean = JSON.parse(JSON.stringify(config || {}));
+  const apis = clean.apis || {};
+  Object.values(apis).forEach(value => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'apiKey' in value) value.apiKey = '';
+  });
+  Object.values(apis.llmVendors || {}).forEach(value => {
+    if (value && typeof value === 'object') value.apiKey = '';
+  });
+  return clean;
+}
+
 function persistUserConfig(config) {
-  localStorage.setItem('ai_canvas_user_config', JSON.stringify(config));
+  localStorage.setItem('ai_canvas_user_config', JSON.stringify(configWithoutSecrets(config)));
 }
 
 function normalizeConfigShape(config) {
@@ -932,11 +1007,19 @@ function normalizeConfigShape(config) {
   cfg.apis.i2i ||= {};
   cfg.apis.multimodal ||= {};
   cfg.apis.agent ||= {};
+  cfg.apis.llmVendors ||= {};
+  for (const [key, defaults] of Object.entries(LLM_VENDOR_DEFAULTS)) {
+    cfg.apis.llmVendors[key] = {
+      ...defaults,
+      ...(cfg.apis.llmVendors[key] || {}),
+    };
+  }
   cfg.models ||= {};
   cfg.models.video ||= ['doubao-seedance-2-0-260'];
   cfg.models.image ||= ['banana', 'image2'];
   cfg.defaults ||= {};
   cfg.defaults.videoProvider = 'ark';
+  cfg.defaults.agentProvider ||= 'doubao';
   cfg.defaults.imageSettingsMode ||= 'standard';
   cfg.defaults.videoModel = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
   cfg.defaults.imageModel ||= cfg.models.image[0] || 'banana';
@@ -5158,7 +5241,8 @@ function applyConfigToUI() {
   document.querySelector('#agentModelName').value = cfg.apis.agent.modelName || 'gpt-4.1-mini';
   document.querySelector('#agentVisionModel').value = cfg.apis.agent.visionModel || 'gpt-4.1-mini';
   document.querySelector('#agentPromptModel').value = cfg.apis.agent.promptModel || 'deepseek-chat';
-  if (els.agentModel) els.agentModel.value = cfg.apis.agent.modelName || 'gpt-4.1-mini';
+  if (els.agentModel) els.agentModel.value = cfg.defaults.agentProvider || 'doubao';
+  applyVendorSettingsToUI(cfg);
   document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
   updateVideoProviderUI();
   updateImageSettingsModeUI();
@@ -5226,6 +5310,34 @@ function selectVideoModel() {
   els.model.value = model;
 }
 
+function vendorInputId(vendor, field) {
+  const name = vendor === 'deepseek' ? 'Deepseek' : vendor.charAt(0).toUpperCase() + vendor.slice(1);
+  const suffix = field === 'modelName' ? 'Model' : field.charAt(0).toUpperCase() + field.slice(1);
+  return `#vendor${name}${suffix}`;
+}
+
+function applyVendorSettingsToUI(cfg) {
+  for (const [vendor, defaults] of Object.entries(LLM_VENDOR_DEFAULTS)) {
+    const item = cfg.apis.llmVendors?.[vendor] || defaults;
+    for (const field of ['baseUrl', 'apiKey', 'modelName', 'note']) {
+      const input = document.querySelector(vendorInputId(vendor, field));
+      if (input) input.value = item[field] || '';
+    }
+  }
+}
+
+function collectVendorSettingsFromUI(cfg) {
+  cfg.apis.llmVendors ||= {};
+  for (const [vendor, defaults] of Object.entries(LLM_VENDOR_DEFAULTS)) {
+    const item = { ...defaults };
+    for (const field of ['baseUrl', 'apiKey', 'modelName', 'note']) {
+      const input = document.querySelector(vendorInputId(vendor, field));
+      item[field] = input?.value?.trim?.() || (field === 'apiKey' ? '' : defaults[field]);
+    }
+    cfg.apis.llmVendors[vendor] = item;
+  }
+}
+
 function collectSettingsFromUI() {
   const cfg = normalizeConfigShape(state.config);
   cfg.defaults.videoProvider = 'ark';
@@ -5264,6 +5376,8 @@ function collectSettingsFromUI() {
   cfg.apis.agent.modelName = document.querySelector('#agentModelName').value.trim() || 'gpt-4.1-mini';
   cfg.apis.agent.visionModel = document.querySelector('#agentVisionModel').value.trim() || cfg.apis.agent.modelName;
   cfg.apis.agent.promptModel = document.querySelector('#agentPromptModel').value.trim() || 'deepseek-chat';
+  collectVendorSettingsFromUI(cfg);
+  cfg.defaults.agentProvider = els.agentModel?.value || 'doubao';
   cfg.models.video = [cfg.apis.ark.modelName].filter(Boolean);
   cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
   cfg.defaults.videoModel = cfg.apis.ark.modelName;
@@ -5276,7 +5390,7 @@ async function persistSettingsConfig(cfg) {
   await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
+    body: JSON.stringify(configWithoutSecrets(cfg)),
   }).catch(() => {});
   state.config = cfg;
   fillModelSelect();

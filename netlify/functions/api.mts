@@ -44,6 +44,38 @@ const DEFAULT_CONFIG = {
       visionModel: "gpt-4.1-mini",
       promptModel: "deepseek-chat",
     },
+    llmVendors: {
+      doubao: {
+        baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+        apiKey: "",
+        modelName: "doubao-1-5-pro-32k",
+        note: "https://console.volcengine.com/ark",
+      },
+      qwen: {
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        apiKey: "",
+        modelName: "qwen-plus",
+        note: "https://bailian.console.aliyun.com",
+      },
+      deepseek: {
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: "",
+        modelName: "deepseek-chat",
+        note: "https://platform.deepseek.com",
+      },
+      kimi: {
+        baseUrl: "https://api.moonshot.cn/v1",
+        apiKey: "",
+        modelName: "moonshot-v1-8k",
+        note: "https://platform.moonshot.cn",
+      },
+      zhipu: {
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+        apiKey: "",
+        modelName: "glm-4-flash",
+        note: "https://open.bigmodel.cn",
+      },
+    },
   },
   models: {
     video: ["doubao-seedance-2.0"],
@@ -52,6 +84,7 @@ const DEFAULT_CONFIG = {
   defaults: {
     videoModel: "doubao-seedance-2.0",
     videoProvider: "maas",
+    agentProvider: "doubao",
     imageModel: "banana",
     ratio: "16:9",
     duration: 8,
@@ -75,6 +108,18 @@ function deepMerge(base: any, patch: any): any {
     }
   }
   return merged;
+}
+
+function stripSecretKeys(config: any): any {
+  const clean = JSON.parse(JSON.stringify(config || {}));
+  const apis = clean.apis || {};
+  for (const value of Object.values(apis) as any[]) {
+    if (value && typeof value === "object" && "apiKey" in value) value.apiKey = "";
+  }
+  for (const value of Object.values(apis.llmVendors || {}) as any[]) {
+    if (value && typeof value === "object") value.apiKey = "";
+  }
+  return clean;
 }
 
 function configFromEnv() {
@@ -242,16 +287,17 @@ async function handleGenerate(req: Request) {
 function agentEndpoint(baseUrl = "https://api.openai.com/v1") {
   const root = String(baseUrl || "https://api.openai.com/v1").trim().replace(/\/$/, "");
   if (root.endsWith("/chat/completions") || root.endsWith("/responses")) return root;
-  if (root.endsWith("/v1")) return `${root}/chat/completions`;
+  if (/\/(?:api\/)?v\d+$/.test(root)) return `${root}/chat/completions`;
   return `${root}/v1/chat/completions`;
 }
 
 async function handleAgent(req: Request) {
   const body = await req.json().catch(() => ({}));
   const config = deepMerge(configFromEnv(), body.clientConfig || {});
-  const api = config.apis?.agent || {};
+  const override = body.agentOverride && typeof body.agentOverride === "object" ? body.agentOverride : {};
+  const api = { ...(config.apis?.agent || {}), ...override };
   const apiKey = String(api.apiKey || "").trim();
-  if (!apiKey) return json({ ok: false, error: "Agent API Key 为空。请在设置 > 智能体 填写 GPT/OpenAI 兼容 Key。" }, 400);
+  if (!apiKey) return json({ ok: false, error: "当前智能体模型的 API Key 为空。请在设置里填写对应厂家或智能体板块的 Key。" }, 400);
   const model = body.model || api.modelName || "gpt-4.1-mini";
   const skill = body.skill || {};
   const refs = Array.isArray(body.references) ? body.references : [];
@@ -272,7 +318,8 @@ async function handleAgent(req: Request) {
     ],
     temperature: 0.7,
   };
-  const res = await fetch(agentEndpoint(api.baseUrl), {
+  const endpoint = agentEndpoint(api.baseUrl);
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -281,7 +328,10 @@ async function handleAgent(req: Request) {
     body: JSON.stringify(payload),
   });
   const data: any = await res.json().catch(async () => ({ error: await res.text() }));
-  if (!res.ok) return json({ ok: false, error: data?.error?.message || data?.error || `Agent HTTP ${res.status}` }, res.status);
+  if (!res.ok) {
+    const err = data?.error?.message || data?.error || `Agent HTTP ${res.status}`;
+    return json({ ok: false, error: `${String(err)}\n请求地址：${endpoint}\n模型：${model}` }, res.status);
+  }
   const text = data?.choices?.[0]?.message?.content || data?.output_text || "";
   return json({ ok: true, text, model, raw: data });
 }
@@ -322,7 +372,7 @@ export default async (req: Request) => {
     }
     if (req.method === "POST" && path === "/api/config") {
       const body = await req.json().catch(() => ({}));
-      return json({ ok: true, config: deepMerge(configFromEnv(), body) });
+      return json({ ok: true, config: deepMerge(configFromEnv(), stripSecretKeys(body)) });
     }
     if (req.method === "POST" && path === "/api/upload") return handleUpload(req);
     if (req.method === "POST" && path === "/api/generate") return handleGenerate(req);
