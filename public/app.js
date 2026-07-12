@@ -1839,6 +1839,16 @@ function isGeneratorType(type) {
   return ['t2i', 'i2i', 't2v', 'i2v'].includes(type);
 }
 
+function setActiveParamNode(node) {
+  if (node && isGeneratorType(node.type)) {
+    state.activeParamNodeId = node.id;
+    node.expanded = true;
+    return true;
+  }
+  state.activeParamNodeId = null;
+  return false;
+}
+
 function ratioNumber(value = '16:9') {
   const [w, h] = String(value || '16:9').split(':').map(Number);
   return w && h ? w / h : 16 / 9;
@@ -2686,9 +2696,18 @@ function renderParamPanel() {
   els.world.appendChild(panel);
 }
 
+function refreshActiveParamPanel() {
+  document.querySelectorAll('.param-panel').forEach(panel => panel.remove());
+  renderParamPanel();
+}
+
 function paramPanelWidth(node) {
+  if (['t2v', 'i2v'].includes(node?.type)) {
+    const preferredW = Number(node?.panelW || 500);
+    return Math.max(420, Math.min(preferredW, 560));
+  }
   const nodeW = Number(node?.w || 0);
-  const preferredW = Number(node?.panelW || (['t2v', 'i2v'].includes(node?.type) ? 480 : 520));
+  const preferredW = Number(node?.panelW || 520);
   return Math.max(nodeW, preferredW);
 }
 
@@ -2704,7 +2723,7 @@ function syncParamPanelPosition(node) {
   if (!node) return;
   const panel = document.querySelector(`.param-panel[data-id="${node.id}"]`);
   if (!panel) return;
-  const panelW = Math.max(paramPanelWidth(node), panel.offsetWidth || 0);
+  const panelW = paramPanelWidth(node);
   panel.style.width = `${panelW}px`;
   panel.style.left = `${paramPanelLeft(node, panelW)}px`;
   panel.style.top = `${paramPanelTop(node)}px`;
@@ -6294,7 +6313,7 @@ function bindEvents() {
       const node = state.nodes.find(n => n.id === panelEl.dataset.id);
       if (!node) return;
       state.selectedId = node.id;
-      state.activeParamNodeId = node.id;
+      setActiveParamNode(node);
       state.selectedLinkId = null;
       const panelHandle = event.target.closest('.panel-resize-handle');
       if (panelHandle) {
@@ -6322,6 +6341,7 @@ function bindEvents() {
       const node = state.nodes.find(n => n.id === nodeEl.dataset.id);
       state.selectedId = node.id;
       state.selectedIds = [];
+      setActiveParamNode(node);
       resizingNode = {
         id: node.id,
         el: nodeEl,
@@ -6331,6 +6351,7 @@ function bindEvents() {
       node.h = resizingNode.startH;
       document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
       nodeEl.classList.add('selected');
+      refreshActiveParamPanel();
       updateNodeInfo();
       return;
     }
@@ -6383,12 +6404,7 @@ function bindEvents() {
         event.preventDefault();
         return;
       }
-      if (clickedNode && isGeneratorType(clickedNode.type)) {
-        state.activeParamNodeId = clickedNode.id;
-        clickedNode.expanded = true;
-      } else {
-        state.activeParamNodeId = null;
-      }
+      setActiveParamNode(clickedNode);
       state.selectedId = id;
       if (!state.selectedIds.includes(id)) state.selectedIds = [];
       state.selectedLinkId = null;
@@ -6397,6 +6413,7 @@ function bindEvents() {
       if (interactiveTarget) {
         document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
         nodeEl.classList.add('selected');
+        refreshActiveParamPanel();
         updateNodeInfo();
         return;
       }
@@ -6449,6 +6466,7 @@ function bindEvents() {
       }
       document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
       nodeEl.classList.add('selected');
+      refreshActiveParamPanel();
       updateNodeInfo();
       return;
     }

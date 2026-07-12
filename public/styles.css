@@ -3150,11 +3150,11 @@ h3 {
 }
 
 .video-control-grid {
-  width: min(100%, 520px);
-  margin: 7px auto 0;
+  width: min(100%, 500px);
+  margin: 5px auto 0;
   display: grid;
-  grid-template-columns: minmax(118px, .78fr) repeat(3, minmax(74px, .66fr));
-  gap: 7px;
+  grid-template-columns: minmax(132px, 1.05fr) repeat(3, minmax(78px, .72fr));
+  gap: 6px;
   align-items: end;
 }
 
@@ -3163,20 +3163,20 @@ h3 {
 }
 
 .video-control-grid .node-label {
-  margin: 0 0 4px;
-  font-size: 10px;
+  margin: 0 0 3px;
+  font-size: 9px;
   color: rgba(190, 202, 218, .86);
 }
 
 .video-control-grid select {
   width: 100%;
   min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 7px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 6px;
   background: rgba(6, 9, 14, .82);
   border-color: rgba(117, 134, 158, .26);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .video-model-cell {
@@ -3504,6 +3504,14 @@ h3 {
 .node.tool-far > .image-tool-strip {
   opacity: 0;
   pointer-events: none;
+}
+
+.node.t2v.selected.tool-far > .video-tool-strip,
+.node.i2v.selected.tool-far > .video-tool-strip,
+.node.video.selected.tool-far > .video-tool-strip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .image-tool-strip button,
@@ -3840,6 +3848,26 @@ h3 {
 
 .param-panel-body {
   padding: 8px;
+}
+
+.param-panel.t2v,
+.param-panel.i2v {
+  min-width: 420px;
+  max-width: 560px;
+}
+
+.param-panel.t2v .param-panel-body,
+.param-panel.i2v .param-panel-body {
+  padding: 7px 9px 9px;
+}
+
+.param-panel.t2v .node-generate,
+.param-panel.i2v .node-generate {
+  min-width: 72px;
+  margin-top: 6px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  font-size: 11px;
 }
 
 .param-panel .image-params {
