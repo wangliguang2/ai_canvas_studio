@@ -41,9 +41,11 @@
   agentRefs: [],
   agentHistory: [],
   agentMode: 'agent',
-  agentRunMode: 'ask',
+  agentRunMode: 'auto',
   agentSkill: 'auto',
   customSkills: [],
+  builtinSkillPrefs: {},
+  hiddenBuiltinSkills: [],
   cloneStudio: {
     sourceUrl: '',
     videoUrl: '',
@@ -172,6 +174,11 @@ const typeNames = {
 const DETAIL_PAGE_LOOP_PROMPT = '电商详情页高转化商业图，严格保留参考主体的核心身份、产品外观、材质、颜色、比例和关键卖点；生成适合详情页使用的高质感视觉模块，主体清晰居中，背景干净高级，棚拍柔光，真实材质纹理，轻微反射，构图稳定，有留白空间，可用于产品介绍、卖点展示、场景化海报和详情页长图。不要乱改品牌、文字、logo、人物五官或产品结构，不要水印，不要多余杂物。';
 const GLOBAL_ASSETS_KEY = 'ai_canvas_global_assets';
 const CUSTOM_SKILLS_KEY = 'ai_canvas_custom_agent_skills';
+const BUILTIN_SKILL_PREFS_KEY = 'ai_canvas_builtin_skill_prefs';
+const HIDDEN_BUILTIN_SKILLS_KEY = 'ai_canvas_hidden_builtin_skills';
+const USER_CONFIG_KEY = 'ai_canvas_user_config';
+const USER_SECRETS_KEY = 'ai_canvas_user_secrets';
+const AGENT_SESSION_KEY = 'ai_canvas_agent_session';
 
 const AGENT_BUILTIN_SKILLS = [
   ['seedance2-15s-prompt', 'Seedance2 提示词', '15秒视频分镜和电影镜头'],
@@ -348,6 +355,46 @@ function renderAgentRefs() {
   renderAgentMentionPanel();
 }
 
+function saveAgentSession() {
+  try {
+    localStorage.setItem(AGENT_SESSION_KEY, JSON.stringify({
+      logHTML: els.agentLog?.innerHTML || '',
+      input: els.agentInput?.value || '',
+      refs: state.agentRefs.map(ref => ({ ...ref })),
+      runMode: state.agentRunMode,
+      skill: state.agentSkill,
+      model: els.agentModel?.value || '',
+      savedAt: Date.now(),
+    }));
+  } catch {
+    // Agent references can contain data URLs; skip persistence if storage quota is full.
+  }
+}
+
+function scheduleAgentSessionSave() {
+  window.clearTimeout(scheduleAgentSessionSave.timer);
+  scheduleAgentSessionSave.timer = window.setTimeout(saveAgentSession, 250);
+}
+
+function loadAgentSession() {
+  try {
+    const data = JSON.parse(localStorage.getItem(AGENT_SESSION_KEY) || '{}');
+    if (els.agentLog && data.logHTML) els.agentLog.innerHTML = data.logHTML;
+    if (els.agentInput && typeof data.input === 'string') els.agentInput.value = data.input;
+    if (Array.isArray(data.refs)) state.agentRefs = data.refs.filter(ref => ref?.url);
+    if (data.model && els.agentModel) els.agentModel.value = data.model;
+    if (data.skill) state.agentSkill = data.skill;
+    if (data.runMode) state.agentRunMode = ['ask', 'auto'].includes(data.runMode) ? data.runMode : 'auto';
+    renderAgentRefs();
+  } catch {
+    localStorage.removeItem(AGENT_SESSION_KEY);
+  }
+}
+
+function clearAgentSession() {
+  localStorage.removeItem(AGENT_SESSION_KEY);
+}
+
 function addAgentRefFiles(files) {
   const imageFiles = [...files].filter(file => file.type?.startsWith('image/'));
   if (!imageFiles.length) return;
@@ -357,6 +404,7 @@ function addAgentRefFiles(files) {
       state.agentRefs.push({ name: file.name, url: String(reader.result || '') });
       renderAgentRefs();
       recordAgentHistory('添加参考图', file.name || `参考图${state.agentRefs.length}`);
+      saveAgentSession();
     };
     reader.readAsDataURL(file);
   });
@@ -368,6 +416,7 @@ function addAgentRef(ref, label = '添加参考图') {
   if (!exists) state.agentRefs.push({ name: ref.name || ref.title || `参考图${state.agentRefs.length + 1}`, url: ref.url });
   renderAgentRefs();
   recordAgentHistory(label, ref.name || ref.title || '');
+  saveAgentSession();
   return true;
 }
 
@@ -432,7 +481,7 @@ function restoreAgentHistory(index) {
   if (els.agentInput) els.agentInput.value = item.input || '';
   if (els.agentModel && item.model) els.agentModel.value = item.model;
   setAgentSkill(item.skill || 'auto');
-  setAgentRunMode(item.runMode || 'ask');
+  setAgentRunMode(item.runMode || 'auto');
   renderAgentRefs();
   els.agentHistoryPanel?.classList.add('hidden');
   setStatus(`已回退到：${item.label}`);
@@ -448,14 +497,16 @@ function appendAgentLog(title, body = '', options = {}) {
   if (empty) empty.remove();
   const item = document.createElement('article');
   item.className = `agent-log-item ${options.role ? `agent-log-${options.role}` : ''}`.trim();
+  const titleHTML = title ? `<strong>${escapeHtml(title)}</strong>` : '';
   item.innerHTML = `
-    <strong>${escapeHtml(title)}</strong>
+    ${titleHTML}
     ${body ? `<p>${agentLogBodyHtml(body)}</p>` : ''}
     ${body ? '<button type="button" class="agent-log-copy" data-agent-log-copy title="复制输出">⧉</button>' : ''}
     <time>${formatAgentHistoryTime(Date.now())}</time>
   `;
   els.agentLog.appendChild(item);
   els.agentLog.scrollTop = els.agentLog.scrollHeight;
+  scheduleAgentSessionSave();
   return item;
 }
 
@@ -532,6 +583,23 @@ function saveCustomSkills() {
   localStorage.setItem(CUSTOM_SKILLS_KEY, JSON.stringify(normalizeCustomSkills(state.customSkills)));
 }
 
+function loadBuiltinSkillPrefs() {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(BUILTIN_SKILL_PREFS_KEY) || '{}');
+    state.builtinSkillPrefs = prefs && typeof prefs === 'object' ? prefs : {};
+    state.hiddenBuiltinSkills = JSON.parse(localStorage.getItem(HIDDEN_BUILTIN_SKILLS_KEY) || '[]')
+      .filter(id => AGENT_BUILTIN_SKILLS.some(([skillId]) => skillId === id));
+  } catch {
+    state.builtinSkillPrefs = {};
+    state.hiddenBuiltinSkills = [];
+  }
+}
+
+function saveBuiltinSkillPrefs() {
+  localStorage.setItem(BUILTIN_SKILL_PREFS_KEY, JSON.stringify(state.builtinSkillPrefs || {}));
+  localStorage.setItem(HIDDEN_BUILTIN_SKILLS_KEY, JSON.stringify(state.hiddenBuiltinSkills || []));
+}
+
 function readTextFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -584,8 +652,9 @@ async function importCustomSkillFiles(files = []) {
   saveCustomSkills();
   renderAgentSkillMenu();
   if (imported[0]) {
-    setAgentSkill(imported[0].id, { keepOpen: true });
+    setAgentSkill(imported[0].id);
     insertIntoAgentInput(agentSkillPrompt(imported[0].id));
+    saveAgentSession();
   }
   setStatus(`已加载 ${imported.length} 个自定义 Skill`);
 }
@@ -596,7 +665,10 @@ function customSkillById(id) {
 
 function agentSkillMeta(value = state.agentSkill) {
   const builtin = AGENT_BUILTIN_SKILLS.find(([id]) => id === value);
-  if (builtin) return { id: builtin[0], name: builtin[1], desc: builtin[2], builtin: true };
+  if (builtin) {
+    const pref = state.builtinSkillPrefs?.[builtin[0]] || {};
+    return { id: builtin[0], name: pref.name || builtin[1], desc: pref.desc || builtin[2], builtin: true };
+  }
   const custom = customSkillById(value);
   if (custom) return { id: custom.id, name: custom.name, desc: custom.desc, content: custom.content, custom: true };
   return { id: value || 'auto', name: value || '自动选择', desc: '根据任务自动挑选能力' };
@@ -608,15 +680,28 @@ function agentSkillLabel(value = state.agentSkill) {
 
 function renderAgentSkillMenu() {
   if (!els.agentSkillMenu) return;
-  const builtinHTML = AGENT_BUILTIN_SKILLS.map(([id, name, desc]) => `
-    <button type="button" draggable="true" data-agent-skill="${escapeAttr(id)}">
-      <b>${escapeHtml(name)}</b><span>${escapeHtml(desc)}</span>
-    </button>
-  `).join('');
+  const builtinHTML = AGENT_BUILTIN_SKILLS
+    .filter(([id]) => !state.hiddenBuiltinSkills.includes(id))
+    .map(([id]) => {
+      const meta = agentSkillMeta(id);
+      return `
+    <div class="agent-skill-option agent-skill-custom" role="button" tabindex="0" draggable="true" data-agent-skill="${escapeAttr(id)}">
+      <div class="agent-skill-text"><b>${escapeHtml(meta.name)}</b><span>${escapeHtml(meta.desc)}</span></div>
+      <div class="agent-skill-actions">
+        <button type="button" data-agent-skill-rename="${escapeAttr(id)}">重命名</button>
+        <button type="button" data-agent-skill-delete="${escapeAttr(id)}">删除</button>
+      </div>
+    </div>
+  `;
+    }).join('');
   const customHTML = state.customSkills.map(item => `
-    <button type="button" draggable="true" data-agent-skill="${escapeAttr(item.id)}">
-      <b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.desc)}</span>
-    </button>
+    <div class="agent-skill-option agent-skill-custom" role="button" tabindex="0" draggable="true" data-agent-skill="${escapeAttr(item.id)}">
+      <div class="agent-skill-text"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.desc)}</span></div>
+      <div class="agent-skill-actions">
+        <button type="button" data-agent-skill-rename="${escapeAttr(item.id)}">重命名</button>
+        <button type="button" data-agent-skill-delete="${escapeAttr(item.id)}">删除</button>
+      </div>
+    </div>
   `).join('');
   els.agentSkillMenu.innerHTML = `
     ${builtinHTML}
@@ -631,6 +716,52 @@ function renderAgentSkillMenu() {
   });
 }
 
+function renameAgentSkill(id) {
+  const item = customSkillById(id);
+  const meta = item || agentSkillMeta(id);
+  if (!meta?.name) return;
+  const nextName = window.prompt('重命名 Skill', meta.name);
+  if (nextName === null) return;
+  const clean = nextName.trim();
+  if (!clean) {
+    setStatus('Skill 名字不能为空');
+    return;
+  }
+  const oldName = meta.name;
+  if (item) {
+    item.name = clean;
+    item.desc = item.desc || '本地导入的自定义 Skill';
+    saveCustomSkills();
+  } else {
+    state.builtinSkillPrefs[id] = { ...(state.builtinSkillPrefs[id] || {}), name: clean };
+    saveBuiltinSkillPrefs();
+  }
+  renderAgentSkillMenu();
+  if (els.agentInput && oldName !== clean) {
+    els.agentInput.value = els.agentInput.value.replaceAll(`@${oldName}`, `@${clean}`);
+    saveAgentSession();
+  }
+  setStatus(`已重命名 Skill：${clean}`);
+}
+
+function deleteAgentSkill(id) {
+  const item = customSkillById(id);
+  const meta = item || agentSkillMeta(id);
+  if (!meta?.name) return;
+  if (!window.confirm(`删除 Skill「${meta.name}」？`)) return;
+  if (item) {
+    state.customSkills = state.customSkills.filter(skill => skill.id !== id);
+    saveCustomSkills();
+  } else if (!state.hiddenBuiltinSkills.includes(id)) {
+    state.hiddenBuiltinSkills.push(id);
+    saveBuiltinSkillPrefs();
+  }
+  if (state.agentSkill === id) state.agentSkill = 'auto';
+  renderAgentSkillMenu();
+  setAgentSkill(state.agentSkill, { keepOpen: true });
+  setStatus(`已删除 Skill：${meta.name}`);
+}
+
 function setAgentMode(mode) {
   state.agentMode = mode || 'agent';
   document.querySelectorAll('[data-agent-mode]').forEach(btn => {
@@ -641,7 +772,7 @@ function setAgentMode(mode) {
 }
 
 function setAgentRunMode(mode) {
-  state.agentRunMode = mode || 'ask';
+  state.agentRunMode = ['ask', 'auto'].includes(mode) ? mode : 'auto';
   document.querySelectorAll('[data-agent-run]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.agentRun === state.agentRunMode);
   });
@@ -663,10 +794,19 @@ function setAgentSkill(skill = 'auto', options = {}) {
 
 function agentSkillPrompt(skill = state.agentSkill) {
   const meta = agentSkillMeta(skill);
-  if (meta.custom && meta.content) {
-    return `调用自定义 Skill：${meta.name}\n\n${meta.content}\n\n目标：`;
-  }
-  return `调用 Skill：${meta.name}\n目标：`;
+  return `@${meta.name} `;
+}
+
+function agentSkillMetaForPrompt(prompt = '') {
+  const selected = agentSkillMeta(state.agentSkill);
+  if (selected.id && selected.id !== 'auto') return selected;
+  const text = String(prompt || '');
+  const candidates = [
+    ...state.customSkills.map(item => ({ id: item.id, name: item.name })),
+    ...AGENT_BUILTIN_SKILLS.map(([id, name]) => ({ id, name })),
+  ].sort((a, b) => String(b.name).length - String(a.name).length);
+  const matched = candidates.find(item => text.includes(`@${item.name}`));
+  return matched ? agentSkillMeta(matched.id) : selected;
 }
 
 function insertIntoAgentInput(text) {
@@ -767,18 +907,193 @@ async function callAgentModel(prompt) {
         modelName: active.modelName,
       },
       runMode: state.agentRunMode,
-      skill: agentSkillMeta(state.agentSkill),
+      skill: agentSkillMetaForPrompt(prompt),
       references: state.agentRefs.map((ref, index) => ({
         index: index + 1,
         name: ref.name || `参考图${index + 1}`,
         url: ref.url,
       })),
-      clientConfig: state.config,
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+function updateAgentLogBody(item, body = '') {
+  if (!item) return;
+  let paragraph = item.querySelector('p');
+  if (!paragraph) {
+    paragraph = document.createElement('p');
+    const copy = item.querySelector('[data-agent-log-copy]');
+    const time = item.querySelector('time');
+    item.insertBefore(paragraph, copy || time || null);
+  }
+  paragraph.innerHTML = agentLogBodyHtml(body);
+  const copyButton = item.querySelector('[data-agent-log-copy]');
+  if (copyButton) copyButton.hidden = !String(body || '').trim();
+  els.agentLog.scrollTop = els.agentLog.scrollHeight;
+  scheduleAgentSessionSave();
+}
+
+async function callAgentModelStream(prompt, onDelta) {
+  const active = activeAgentConfig();
+  const res = await fetch('/api/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt,
+      model: active.modelName,
+      agentProvider: active.provider,
+      stream: true,
+      agentOverride: {
+        baseUrl: active.baseUrl,
+        apiKey: active.apiKey,
+        modelName: active.modelName,
+      },
+      runMode: state.agentRunMode,
+      skill: agentSkillMetaForPrompt(prompt),
+      references: state.agentRefs.map((ref, index) => ({
+        index: index + 1,
+        name: ref.name || `参考图${index + 1}`,
+        url: ref.url,
+      })),
+    }),
+  });
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok) {
+    if (contentType.includes('application/json')) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
+  }
+  if (contentType.includes('application/json')) {
+    const data = await res.json().catch(() => ({}));
+    const text = data.text || '';
+    if (text) onDelta(text);
+    return text;
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let fullText = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const delta = decoder.decode(value, { stream: true });
+    if (!delta) continue;
+    fullText += delta;
+    onDelta(delta, fullText);
+  }
+  const tail = decoder.decode();
+  if (tail) {
+    fullText += tail;
+    onDelta(tail, fullText);
+  }
+  return fullText;
+}
+
+function shouldSendSegmentsToCanvas(prompt = '', text = '') {
+  if (!/\[Segment\d*\]/i.test(text)) return false;
+  return /(放到|放进|加入|添加到|生成到|写到|输出到|放在).{0,12}画布|画布(中|里|上)/.test(prompt);
+}
+
+function parseAgentSegments(text = '') {
+  const source = String(text || '').replace(/\r\n/g, '\n');
+  const regex = /^\s*\[(Segment\s*\d*)\]\s*(.*)$/gim;
+  const matches = [...source.matchAll(regex)];
+  if (!matches.length) return [];
+  return matches.map((match, index) => {
+    const start = (match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index || source.length : source.length;
+    const rawLabel = String(match[1] || '').replace(/\s+/g, '');
+    const label = index === 0 && /^Segment$/i.test(rawLabel) ? 'Segment' : rawLabel;
+    const title = `[${label}]`;
+    const inlineTitle = (match[2] || '').trim();
+    const body = source.slice(start, end).trim();
+    const content = [inlineTitle, body].filter(Boolean).join('\n\n').trim();
+    return { title, text: content || title };
+  }).filter(item => item.text.trim());
+}
+
+function addAgentSegmentsToCanvas(prompt = '', text = '') {
+  if (!shouldSendSegmentsToCanvas(prompt, text)) return 0;
+  const segments = parseAgentSegments(text);
+  if (!segments.length) return 0;
+  const anchor = agentCanvasAnchor();
+  const gap = 28;
+  const width = 420;
+  const height = 250;
+  segments.forEach((segment, index) => {
+    addNode('text', anchor.x + index * (width + gap), anchor.y + index * 24, {
+      title: segment.title,
+      text: segment.text,
+      w: width,
+      h: height,
+    });
+  });
+  setStatus(`已把 ${segments.length} 段 Segment 放到画布`);
+  return segments.length;
+}
+
+function createVideoReversePromptNode(nodeId) {
+  const source = state.nodes.find(node => node.id === nodeId);
+  if (!source || !['t2v', 'i2v', 'video'].includes(source.type)) return;
+  const text = [
+    `来源视频节点：${source.title || typeNames[source.type] || '视频'}`,
+    '',
+    '【视频反推提示词入口】',
+    '请分析该视频的主体、镜头运动、景别、动作节奏、转场、光影、色彩、场景、材质、声音事件，并输出可直接用于文生视频/图生视频的提示词。',
+    source.text ? `\n原始提示词：\n${source.text}` : '',
+  ].filter(Boolean).join('\n');
+  const node = addNode('text', source.x + (source.w || 380) + 70, source.y, {
+    title: '视频反推提示词',
+    text,
+    w: 420,
+    h: 260,
+  });
+  if (canOutput(source.type)) state.links.push({ id: uid('link'), from: source.id, to: node.id });
+  render();
+  saveCanvas();
+  setStatus('已创建视频反推提示词节点');
+}
+
+function captureFrameFromVideoNode(nodeId) {
+  const node = state.nodes.find(item => item.id === nodeId);
+  if (!node || !['video', 't2v', 'i2v'].includes(node.type)) return;
+  const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+  const video = nodeEl?.querySelector('video');
+  if (!video) {
+    setStatus('当前节点没有可截取的视频');
+    return;
+  }
+  const width = video.videoWidth || node.naturalWidth || 1280;
+  const height = video.videoHeight || node.naturalHeight || 720;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, width, height);
+    const url = canvas.toDataURL('image/png');
+    const frame = addNode('image', node.x + (node.w || 380) + 70, node.y + 50, {
+      title: `${node.title || '视频'} 当前帧`,
+      url,
+      mime: 'image/png',
+      naturalWidth: width,
+      naturalHeight: height,
+      imageRatio: width / height,
+      role: 'video_frame',
+      w: Math.min(420, Math.max(240, Math.round(220 * (width / height)))),
+    });
+    state.links.push({ id: uid('link'), from: node.id, to: frame.id });
+    render();
+    saveCanvas();
+    setStatus('已捕捉当前帧并生成图片节点');
+  } catch (err) {
+    setStatus(`捕捉帧失败：视频跨域或浏览器限制，建议先下载视频后重新上传再截帧`);
+  }
 }
 
 async function executeAgentCommand() {
@@ -788,13 +1103,19 @@ async function executeAgentCommand() {
     return;
   }
   const sendButton = document.querySelector('.agent-send');
-  appendAgentLog('你', prompt, { role: 'user' });
+  appendAgentLog('', prompt, { role: 'user' });
   recordAgentHistory('询问智能体', prompt.slice(0, 42));
   if (agentApiConfigured()) {
     try {
       sendButton?.classList.add('is-running');
-      const data = await callAgentModel(prompt);
-      appendAgentLog('智能体', data.text || '智能体没有返回文本', { role: 'assistant' });
+      let fullText = '';
+      const assistantItem = appendAgentLog('智能体', '正在连接模型...', { role: 'assistant' });
+      await callAgentModelStream(prompt, (delta, current) => {
+        fullText = current || `${fullText}${delta}`;
+        updateAgentLogBody(assistantItem, fullText || '正在生成...');
+      });
+      if (!fullText.trim()) updateAgentLogBody(assistantItem, '智能体没有返回文本');
+      addAgentSegmentsToCanvas(prompt, fullText);
       setStatus('智能体已回复');
       return;
     } catch (err) {
@@ -980,10 +1301,58 @@ function mergeConfig(base, patch) {
 
 function localUserConfig() {
   try {
-    return JSON.parse(localStorage.getItem('ai_canvas_user_config') || '{}');
+    return JSON.parse(localStorage.getItem(USER_CONFIG_KEY) || '{}');
   } catch {
     return {};
   }
+}
+
+function localUserSecrets() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_SECRETS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function setDeepValue(target, path, value) {
+  let cursor = target;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    cursor[path[i]] ||= {};
+    cursor = cursor[path[i]];
+  }
+  cursor[path[path.length - 1]] = value;
+}
+
+function getDeepValue(target, path) {
+  return path.reduce((cursor, key) => (cursor && typeof cursor === 'object' ? cursor[key] : undefined), target);
+}
+
+function secretValue(path, inputValue = '', fallback = '') {
+  const typed = String(inputValue || '').trim();
+  if (typed) return typed;
+  return getDeepValue(localUserSecrets(), path) || fallback || '';
+}
+
+function secretPaths() {
+  const paths = [
+    ['apis', 'maas', 'apiKey'],
+    ['apis', 'ark', 'apiKey'],
+    ['apis', 'banana', 'apiKey'],
+    ['apis', 'image2', 'apiKey'],
+    ['apis', 'i2i', 'apiKey'],
+    ['apis', 'multimodal', 'apiKey'],
+    ['apis', 'agent', 'apiKey'],
+  ];
+  for (const vendor of Object.keys(LLM_VENDOR_DEFAULTS)) {
+    paths.push(['apis', 'llmVendors', vendor, 'apiKey']);
+  }
+  return paths;
+}
+
+function mergeLocalSecrets(config) {
+  const merged = mergeConfig(config || {}, localUserSecrets());
+  return normalizeConfigShape(merged);
 }
 
 function configWithoutSecrets(config) {
@@ -999,7 +1368,14 @@ function configWithoutSecrets(config) {
 }
 
 function persistUserConfig(config) {
-  localStorage.setItem('ai_canvas_user_config', JSON.stringify(configWithoutSecrets(config)));
+  const full = normalizeConfigShape(JSON.parse(JSON.stringify(config || {})));
+  const secrets = localUserSecrets();
+  for (const path of secretPaths()) {
+    const value = getDeepValue(full, path);
+    if (typeof value === 'string' && value.trim()) setDeepValue(secrets, path, value.trim());
+  }
+  localStorage.setItem(USER_SECRETS_KEY, JSON.stringify(secrets));
+  localStorage.setItem(USER_CONFIG_KEY, JSON.stringify(configWithoutSecrets(full)));
 }
 
 function normalizeConfigShape(config) {
@@ -1577,6 +1953,7 @@ function normalizeNode(node) {
 }
 
 function addNode(type, x, y, data = {}) {
+  const title = data.title || defaultTitleForNode(type);
   const node = {
     id: uid(type),
     type,
@@ -1584,7 +1961,7 @@ function addNode(type, x, y, data = {}) {
     y,
     w: data.w || (type === 'director' ? 720 : type === 'browser' ? 680 : type === 'loop' ? 620 : type === 'grid' ? 680 : type === 'compare' ? 520 : type === 'script' ? 360 : ['text', 'prompt'].includes(type) ? 320 : ['t2v', 'i2v'].includes(type) ? 380 : ['t2i', 'i2i'].includes(type) ? 520 : 220),
     h: data.h || (type === 'director' ? 420 : type === 'browser' ? 430 : type === 'loop' ? 380 : type === 'grid' ? 410 : type === 'compare' ? 300 : type === 'script' ? 220 : ['text', 'prompt'].includes(type) ? 180 : 120),
-    title: data.title || typeNames[type] || '节点',
+    title,
     text: data.text || (type === 'loop' ? DETAIL_PAGE_LOOP_PROMPT : ''),
     url: data.url || '',
     mime: data.mime || '',
@@ -1644,6 +2021,16 @@ function addNode(type, x, y, data = {}) {
   renderAssets();
   renderHistory();
   return node;
+}
+
+function defaultTitleForNode(type) {
+  if (type === 'text') {
+    const used = new Set(state.nodes.filter(node => node.type === 'text').map(node => node.title));
+    let index = 1;
+    while (used.has(`文本${index}`)) index += 1;
+    return `文本${index}`;
+  }
+  return typeNames[type] || '节点';
 }
 
 function roleForType(type) {
@@ -1776,6 +2163,7 @@ function nodeHTML(node) {
     floatingTools = gridToolbarHTML(node);
     body = gridNodeHTML(node);
   } else if (node.type === 'video' && node.url) {
+    floatingTools = videoUtilityToolbarHTML(node);
     const dims = imageDimensionsLabel(node);
     body = `
       <div class="video-node-preview" data-drag-asset-node="${node.id}">
@@ -1796,6 +2184,7 @@ function nodeHTML(node) {
       <textarea data-field="text" placeholder="输入视频/图片提示词...">${escapeHtml(node.text)}</textarea>
     `;
   } else if (node.type === 't2v' || node.type === 'i2v') {
+    floatingTools = videoUtilityToolbarHTML(node);
     body = videoGeneratorHTML(node);
   } else if (node.type === 't2i' || node.type === 'i2i') {
     floatingTools = imageUtilityToolbarHTML(node);
@@ -1997,6 +2386,15 @@ function imageUtilityToolbarHTML(node) {
           <button type="button" data-image-grid="25">25宫格裁切<span>5×5 网格</span></button>
         </div>
       </div>
+    </div>
+  `;
+}
+
+function videoUtilityToolbarHTML(node) {
+  return `
+    <div class="image-tool-strip video-tool-strip">
+      <button type="button" data-video-reverse title="把当前视频反推为提示词入口">反推</button>
+      <button type="button" data-video-capture-frame title="截取当前帧生成图片节点">捕捉帧</button>
     </div>
   `;
 }
@@ -2273,7 +2671,7 @@ function renderParamPanel() {
   if (!node) return;
   const panel = document.createElement('div');
   const panelW = paramPanelWidth(node);
-  panel.className = `param-panel ${node.type}`;
+  panel.className = `param-panel ${node.type} active`;
   panel.dataset.id = node.id;
   panel.style.left = `${paramPanelLeft(node, panelW)}px`;
   panel.style.top = `${paramPanelTop(node)}px`;
@@ -2286,6 +2684,18 @@ function renderParamPanel() {
     <div class="panel-resize-handle" title="拖动调整参数面板"></div>
   `;
   els.world.appendChild(panel);
+}
+
+function scheduleParamPanelHide(nodeId, delay = 180) {
+  window.clearTimeout(scheduleParamPanelHide.timer);
+  scheduleParamPanelHide.timer = window.setTimeout(() => {
+    if (state.activeParamNodeId !== nodeId) return;
+    const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
+    const panelEl = document.querySelector(`.param-panel[data-id="${nodeId}"]`);
+    if (nodeEl?.matches(':hover') || panelEl?.matches(':hover')) return;
+    state.activeParamNodeId = null;
+    render();
+  }, delay);
 }
 
 function paramPanelWidth(node) {
@@ -5194,7 +5604,7 @@ function taskHTML(task) {
 async function loadConfig() {
   const res = await fetch('/api/config');
   const remoteConfig = await res.json();
-  state.config = normalizeConfigShape(mergeConfig(remoteConfig, localUserConfig()));
+  state.config = mergeLocalSecrets(normalizeConfigShape(mergeConfig(remoteConfig, localUserConfig())));
   applyConfigToUI();
   refreshBalances();
 }
@@ -5381,7 +5791,9 @@ function collectVendorSettingsFromUI(cfg) {
     const item = { ...defaults };
     for (const field of ['baseUrl', 'apiKey', 'modelName', 'note']) {
       const input = document.querySelector(vendorInputId(vendor, field));
-      item[field] = input?.value?.trim?.() || (field === 'apiKey' ? '' : defaults[field]);
+      item[field] = field === 'apiKey'
+        ? secretValue(['apis', 'llmVendors', vendor, 'apiKey'], input?.value, cfg.apis.llmVendors?.[vendor]?.apiKey)
+        : input?.value?.trim?.() || defaults[field];
     }
     cfg.apis.llmVendors[vendor] = item;
   }
@@ -5392,23 +5804,23 @@ function collectSettingsFromUI() {
   cfg.defaults.videoProvider = 'ark';
   cfg.defaults.imageSettingsMode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
   cfg.apis.ark.baseUrl = document.querySelector('#arkBaseUrl').value.trim();
-  cfg.apis.ark.apiKey = document.querySelector('#arkApiKey').value.trim();
+  cfg.apis.ark.apiKey = secretValue(['apis', 'ark', 'apiKey'], document.querySelector('#arkApiKey').value, cfg.apis.ark.apiKey);
   cfg.apis.ark.website = cfg.apis.ark.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
   cfg.apis.ark.modelName = document.querySelector('#arkModel').value.trim() || 'doubao-seedance-2-0-260';
-  cfg.apis.banana.apiKey = document.querySelector('#bananaApiKey').value.trim();
+  cfg.apis.banana.apiKey = secretValue(['apis', 'banana', 'apiKey'], document.querySelector('#bananaApiKey').value, cfg.apis.banana.apiKey);
   cfg.apis.banana.website = document.querySelector('#bananaWebsite').value.trim();
-  cfg.apis.image2.apiKey = document.querySelector('#image2ApiKey').value.trim();
+  cfg.apis.image2.apiKey = secretValue(['apis', 'image2', 'apiKey'], document.querySelector('#image2ApiKey').value, cfg.apis.image2.apiKey);
   cfg.apis.image2.website = document.querySelector('#image2Website').value.trim();
   cfg.apis.image2.modelName = document.querySelector('#image2ModelName').value.trim() || 'gpt-image-2';
   cfg.apis.i2i.baseUrl = document.querySelector('#i2iBaseUrl').value.trim();
-  cfg.apis.i2i.apiKey = document.querySelector('#i2iApiKey').value.trim();
+  cfg.apis.i2i.apiKey = secretValue(['apis', 'i2i', 'apiKey'], document.querySelector('#i2iApiKey').value, cfg.apis.i2i.apiKey);
   cfg.apis.i2i.website = document.querySelector('#i2iWebsite').value.trim() || 'https://www.dmxapi.cn';
   cfg.apis.i2i.modelName = document.querySelector('#i2iModelName').value.trim();
   cfg.apis.i2i.endpointType = document.querySelector('#i2iEndpointType').value || 'custom-edits';
   cfg.apis.i2i.referenceField = 'image';
   cfg.apis.i2i.identityPrompt = document.querySelector('#i2iIdentityPrompt').value.trim();
   cfg.apis.multimodal.baseUrl = document.querySelector('#multiBaseUrl').value.trim() || 'https://www.dmxapi.cn/v1/responses';
-  cfg.apis.multimodal.apiKey = document.querySelector('#multiApiKey').value.trim();
+  cfg.apis.multimodal.apiKey = secretValue(['apis', 'multimodal', 'apiKey'], document.querySelector('#multiApiKey').value, cfg.apis.multimodal.apiKey);
   cfg.apis.multimodal.website = 'https://www.dmxapi.cn';
   cfg.apis.multimodal.submitModel = document.querySelector('#multiSubmitModel').value.trim() || 'doubao-seedance-2-0-260128';
   cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel').value.trim() || 'seedance-2-0-get';
@@ -5421,7 +5833,7 @@ function collectSettingsFromUI() {
   cfg.apis.multimodal.returnLastFrame = false;
   cfg.apis.multimodal.webSearch = false;
   cfg.apis.agent.baseUrl = document.querySelector('#agentBaseUrl').value.trim() || 'https://api.openai.com/v1';
-  cfg.apis.agent.apiKey = document.querySelector('#agentApiKey').value.trim();
+  cfg.apis.agent.apiKey = secretValue(['apis', 'agent', 'apiKey'], document.querySelector('#agentApiKey').value, cfg.apis.agent.apiKey);
   cfg.apis.agent.modelName = document.querySelector('#agentModelName').value.trim() || 'gpt-4.1-mini';
   cfg.apis.agent.visionModel = document.querySelector('#agentVisionModel').value.trim() || cfg.apis.agent.modelName;
   cfg.apis.agent.promptModel = document.querySelector('#agentPromptModel').value.trim() || 'deepseek-chat';
@@ -5528,6 +5940,8 @@ function bindEvents() {
     event.stopPropagation();
     if (els.agentLog) els.agentLog.innerHTML = '';
     els.agentHistoryPanel?.classList.add('hidden');
+    clearAgentSession();
+    saveAgentSession();
     setStatus('智能体输出已清空');
   });
   els.agentLog?.addEventListener('click', async event => {
@@ -5553,6 +5967,7 @@ function bindEvents() {
     state.agentRefs.splice(Number(btn.dataset.agentRefRemove), 1);
     renderAgentRefs();
     recordAgentHistory('移除参考图');
+    saveAgentSession();
   });
   els.agentRefs?.addEventListener('dragstart', event => {
     const item = event.target.closest('[data-agent-ref-index]');
@@ -5585,6 +6000,7 @@ function bindEvents() {
     state.agentRefs = refs;
     renderAgentRefs();
     recordAgentHistory('调整参考图顺序');
+    saveAgentSession();
   });
   els.agentDock?.addEventListener('dragover', event => {
     const types = [...(event.dataTransfer?.types || [])];
@@ -5623,11 +6039,26 @@ function bindEvents() {
       els.agentSkillFileInput?.click();
       return;
     }
+    const rename = event.target.closest('[data-agent-skill-rename]');
+    if (rename) {
+      event.preventDefault();
+      event.stopPropagation();
+      renameAgentSkill(rename.dataset.agentSkillRename);
+      return;
+    }
+    const remove = event.target.closest('[data-agent-skill-delete]');
+    if (remove) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteAgentSkill(remove.dataset.agentSkillDelete);
+      return;
+    }
     const item = event.target.closest('[data-agent-skill]');
     if (!item) return;
     event.preventDefault();
     setAgentSkill(item.dataset.agentSkill);
     insertIntoAgentInput(agentSkillPrompt(item.dataset.agentSkill));
+    saveAgentSession();
   });
   els.agentSkillFileInput?.addEventListener('change', async () => {
     try {
@@ -5663,8 +6094,15 @@ function bindEvents() {
     event.preventDefault();
     setAgentSkill(skill);
     insertIntoAgentInput(agentSkillPrompt(skill));
+    saveAgentSession();
   });
+  els.agentInput?.addEventListener('input', scheduleAgentSessionSave);
   els.agentInput?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      executeAgentCommand();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       executeAgentCommand();
@@ -5691,7 +6129,10 @@ function bindEvents() {
     insertAgentMention(item.dataset.agentMentionIndex);
   });
   document.querySelectorAll('[data-agent-run]').forEach(btn => {
-    btn.addEventListener('click', () => setAgentRunMode(btn.dataset.agentRun));
+    btn.addEventListener('click', () => {
+      setAgentRunMode(btn.dataset.agentRun);
+      saveAgentSession();
+    });
   });
   document.querySelector('.agent-send')?.addEventListener('click', executeAgentCommand);
   setAgentMode(state.agentMode);
@@ -5957,6 +6398,8 @@ function bindEvents() {
       if (clickedNode && isGeneratorType(clickedNode.type)) {
         state.activeParamNodeId = clickedNode.id;
         clickedNode.expanded = true;
+      } else {
+        state.activeParamNodeId = null;
       }
       state.selectedId = id;
       if (!state.selectedIds.includes(id)) state.selectedIds = [];
@@ -6650,6 +7093,19 @@ function bindEvents() {
   });
 
   els.world.addEventListener('click', event => {
+    const reverse = event.target.closest('[data-video-reverse]');
+    const capture = event.target.closest('[data-video-capture-frame]');
+    if (!reverse && !capture) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nodeEl = eventNodeElement(event.target);
+    if (!nodeEl?.dataset.id) return;
+    state.selectedId = nodeEl.dataset.id;
+    if (reverse) createVideoReversePromptNode(nodeEl.dataset.id);
+    if (capture) captureFrameFromVideoNode(nodeEl.dataset.id);
+  });
+
+  els.world.addEventListener('click', event => {
     const nodeEl = eventNodeElement(event.target);
     const node = nodeEl ? state.nodes.find(n => n.id === nodeEl.dataset.id) : null;
     if (!node || node.type !== 'browser') return;
@@ -6723,6 +7179,29 @@ function bindEvents() {
   els.world.addEventListener('mouseleave', event => {
     const nodeEl = event.target.closest('.node');
     if (nodeEl?.dataset.id === state.hoverVideoNodeId) state.hoverVideoNodeId = null;
+  }, true);
+
+  els.world.addEventListener('mouseleave', event => {
+    const nodeEl = event.target.closest('.node');
+    if (!nodeEl?.dataset.id || nodeEl.dataset.id !== state.activeParamNodeId) return;
+    if (event.relatedTarget?.closest?.(`.param-panel[data-id="${nodeEl.dataset.id}"]`)) return;
+    scheduleParamPanelHide(nodeEl.dataset.id);
+  }, true);
+
+  els.world.addEventListener('mouseleave', event => {
+    const panelEl = event.target.closest('.param-panel');
+    if (!panelEl?.dataset.id || panelEl.dataset.id !== state.activeParamNodeId) return;
+    if (event.relatedTarget?.closest?.(`.node[data-id="${panelEl.dataset.id}"]`)) return;
+    scheduleParamPanelHide(panelEl.dataset.id);
+  }, true);
+
+  els.world.addEventListener('mouseenter', event => {
+    const panelEl = event.target.closest('.param-panel');
+    const nodeEl = event.target.closest('.node');
+    if ((panelEl?.dataset.id && panelEl.dataset.id === state.activeParamNodeId)
+      || (nodeEl?.dataset.id && nodeEl.dataset.id === state.activeParamNodeId)) {
+      window.clearTimeout(scheduleParamPanelHide.timer);
+    }
   }, true);
 
   els.world.addEventListener('click', event => {
@@ -8391,7 +8870,9 @@ async function init() {
   loadGridSettings();
   loadPromptPresets();
   loadCustomSkills();
+  loadBuiltinSkillPrefs();
   renderAgentSkillMenu();
+  loadAgentSession();
   applyTransform();
   bindEvents();
   loadCanvas();

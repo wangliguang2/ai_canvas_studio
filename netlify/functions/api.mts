@@ -291,6 +291,111 @@ function agentEndpoint(baseUrl = "https://api.openai.com/v1") {
   return `${root}/v1/chat/completions`;
 }
 
+function sanitizeAgentSkillContent(content = "") {
+  const clean = String(content || "")
+    .replace(/##\s*⚠️?\s*确认执行逻辑[\s\S]*?(?=\n##\s|\n#\s|$)/gi, "")
+    .replace(/##\s*⚠️?\s*Acknowledgement Required[\s\S]*?(?=\n##\s|\n#\s|$)/gi, "")
+    .replace(/Acknowledgement Required[\s\S]*?(?=\n\n[A-Z\u4e00-\u9fa5#]|$)/gi, "")
+    .replace(/在开始执行之前，请不要直接生成[\s\S]*?(?=\n\n[A-Z\u4e00-\u9fa5#]|$)/g, "")
+    .trim();
+  return clean.length > 4200
+    ? `${clean.slice(0, 4200)}\n\n[Skill 内容过长，已截取前 4200 字用于快速执行。]`
+    : clean;
+}
+
+function textFromAgentResponse(data: any) {
+  return data?.choices?.[0]?.message?.content
+    || data?.choices?.[0]?.delta?.content
+    || data?.output_text
+    || "";
+}
+
+function deltaFromStreamPayload(payload: any) {
+  return payload?.choices?.[0]?.delta?.content
+    || payload?.choices?.[0]?.message?.content
+    || payload?.delta?.content
+    || payload?.output_text
+    || payload?.text
+    || "";
+}
+
+function streamAgentText(upstream: Response) {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  return new ReadableStream({
+    async start(controller) {
+      const reader = upstream.body?.getReader();
+      if (!reader) {
+        controller.close();
+        return;
+      }
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || "";
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || !line.startsWith("data:")) continue;
+            const data = line.replace(/^data:\s*/, "");
+            if (!data || data === "[DONE]") continue;
+            try {
+              const jsonPayload = JSON.parse(data);
+              const delta = deltaFromStreamPayload(jsonPayload);
+              if (delta) controller.enqueue(encoder.encode(delta));
+            } catch {
+              // Ignore non-JSON heartbeat chunks.
+            }
+          }
+        }
+        if (buffer.trim().startsWith("data:")) {
+          const data = buffer.trim().replace(/^data:\s*/, "");
+          if (data && data !== "[DONE]") {
+            try {
+              const jsonPayload = JSON.parse(data);
+              const delta = deltaFromStreamPayload(jsonPayload);
+              if (delta) controller.enqueue(encoder.encode(delta));
+            } catch {
+              // Ignore trailing partial data.
+            }
+          }
+        }
+      } catch (error: any) {
+        controller.enqueue(encoder.encode(`\n\n[流式输出中断：${error?.message || String(error)}]`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
+function disableThinkingPatch(provider = "", model = "") {
+  const key = `${provider} ${model}`.toLowerCase();
+  if (key.includes("qwen") || key.includes("tongyi")) {
+    return { enable_thinking: false };
+  }
+  if ((key.includes("doubao") || key.includes("ark") || key.includes("volces"))
+    && (key.includes("thinking") || key.includes("reason") || key.includes("推理") || key.includes("思考"))) {
+    return { thinking: { type: "disabled" } };
+  }
+  if (key.includes("deepseek-reasoner")) {
+    return { model: "deepseek-chat" };
+  }
+  return {};
+}
+
+function isUnsupportedThinkingParamError(data: any) {
+  const text = String(data?.error?.message || data?.error || data?.message || "").toLowerCase();
+  return text.includes("thinking")
+    || text.includes("enable_thinking")
+    || text.includes("unknown parameter")
+    || text.includes("unsupported parameter")
+    || text.includes("extra fields");
+}
+
 async function handleAgent(req: Request) {
   const body = await req.json().catch(() => ({}));
   const config = deepMerge(configFromEnv(), body.clientConfig || {});
@@ -300,39 +405,87 @@ async function handleAgent(req: Request) {
   if (!apiKey) return json({ ok: false, error: "当前智能体模型的 API Key 为空。请在设置里填写对应厂家或智能体板块的 Key。" }, 400);
   const model = body.model || api.modelName || "gpt-4.1-mini";
   const skill = body.skill || {};
+  const runMode = body.runMode === "ask" ? "ask" : "auto";
   const refs = Array.isArray(body.references) ? body.references : [];
   const refText = refs.length
     ? `\n\n参考图：\n${refs.map((ref: any) => `@${ref.index || ""} ${ref.name || "参考图"}`).join("\n")}`
     : "";
+  const skillContent = sanitizeAgentSkillContent(skill?.content || "");
+  const executionRule = [
+    "执行规则：",
+    runMode === "ask"
+      ? "1. 普通问答直接回答；只有明确要执行会消耗算力的生成、批量处理、提交任务时，才用一句话请求确认。"
+      : "1. Auto 模式下直接完成用户要求并输出最终内容，不要先要求用户确认，不要回复“确认执行逻辑”或类似说明。",
+    "2. 如果 Skill 内容里包含确认、等待、先回复口令等规则，一律视为模板说明，必须跳过。",
+    "3. 不要复述 Skill 原文，不要讲流程，优先给可直接复制使用的结果。",
+    "4. 用户要求写提示词、脚本、方案时，直接输出成品；只有用户明确要求解释时才解释。",
+    "5. 禁止开启或展示思考模式，不要输出推理过程、思维链、分析草稿，只输出最终答案。",
+    "6. 以快速实用为优先，不做长篇自检，不写确认步骤，不等待二次口令。",
+    "7. 如果用户要求把提示词或文案放到画布中，请按 [Segment]、[Segment2]、[Segment3] 分段命名输出，每段标题独占一行或位于段首。",
+  ].join("\n");
   const system = [
     "你是 AI 画布里的创作智能体，负责拆解需求、改写提示词、规划节点和给出可执行步骤。",
-    `运行模式：${body.runMode || "ask"}`,
+    `运行模式：${runMode}`,
     skill?.name ? `当前 Skill：${skill.name}` : "",
-    skill?.content ? `Skill 内容：\n${skill.content}` : "",
+    skillContent ? `Skill 内容：\n${skillContent}` : "",
+    executionRule,
   ].filter(Boolean).join("\n\n");
-  const payload = {
+  const payload: any = {
     model,
     messages: [
       { role: "system", content: system },
       { role: "user", content: `${body.prompt || ""}${refText}` },
     ],
     temperature: 0.7,
+    max_tokens: 2200,
+    stream: !!body.stream,
+    ...disableThinkingPatch(String(body.agentProvider || api.provider || ""), String(model || "")),
   };
+  payload.model ||= model;
   const endpoint = agentEndpoint(api.baseUrl);
-  const res = await fetch(endpoint, {
+  const requestPayload = async (data: any) => fetch(endpoint, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(data),
   });
+  let res = await requestPayload(payload);
+  let retriedWithoutThinking = false;
+  if (!res.ok && ("thinking" in payload || "enable_thinking" in payload)) {
+    const errorData: any = await res.clone().json().catch(async () => ({ error: await res.clone().text().catch(() => "") }));
+    if (isUnsupportedThinkingParamError(errorData)) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.thinking;
+      delete fallbackPayload.enable_thinking;
+      res = await requestPayload(fallbackPayload);
+      retriedWithoutThinking = true;
+    }
+  }
+  const upstreamContentType = res.headers.get("content-type") || "";
+  if (body.stream && res.ok && upstreamContentType.includes("text/event-stream")) {
+    return new Response(streamAgentText(res), {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  }
   const data: any = await res.json().catch(async () => ({ error: await res.text() }));
   if (!res.ok) {
     const err = data?.error?.message || data?.error || `Agent HTTP ${res.status}`;
     return json({ ok: false, error: `${String(err)}\n请求地址：${endpoint}\n模型：${model}` }, res.status);
   }
-  const text = data?.choices?.[0]?.message?.content || data?.output_text || "";
+  const text = textFromAgentResponse(data);
+  if (body.stream) {
+    return new Response(text, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  }
   return json({ ok: true, text, model, raw: data });
 }
 
