@@ -2676,7 +2676,7 @@ function renderParamPanel() {
   panel.style.left = `${paramPanelLeft(node, panelW)}px`;
   panel.style.top = `${paramPanelTop(node)}px`;
   panel.style.width = `${panelW}px`;
-  panel.style.minHeight = `${node.panelH || 180}px`;
+  panel.style.minHeight = `${node.panelH || (['t2v', 'i2v'].includes(node.type) ? 128 : 180)}px`;
   panel.innerHTML = `
     <div class="param-panel-body">
       ${['t2i', 'i2i'].includes(node.type) ? imageParamPanelHTML(node) : videoParamPanelHTML(node)}
@@ -2686,21 +2686,9 @@ function renderParamPanel() {
   els.world.appendChild(panel);
 }
 
-function scheduleParamPanelHide(nodeId, delay = 180) {
-  window.clearTimeout(scheduleParamPanelHide.timer);
-  scheduleParamPanelHide.timer = window.setTimeout(() => {
-    if (state.activeParamNodeId !== nodeId) return;
-    const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
-    const panelEl = document.querySelector(`.param-panel[data-id="${nodeId}"]`);
-    if (nodeEl?.matches(':hover') || panelEl?.matches(':hover')) return;
-    state.activeParamNodeId = null;
-    render();
-  }, delay);
-}
-
 function paramPanelWidth(node) {
   const nodeW = Number(node?.w || 0);
-  const preferredW = Number(node?.panelW || (['t2v', 'i2v'].includes(node?.type) ? 560 : 520));
+  const preferredW = Number(node?.panelW || (['t2v', 'i2v'].includes(node?.type) ? 480 : 520));
   return Math.max(nodeW, preferredW);
 }
 
@@ -7179,29 +7167,6 @@ function bindEvents() {
   els.world.addEventListener('mouseleave', event => {
     const nodeEl = event.target.closest('.node');
     if (nodeEl?.dataset.id === state.hoverVideoNodeId) state.hoverVideoNodeId = null;
-  }, true);
-
-  els.world.addEventListener('mouseleave', event => {
-    const nodeEl = event.target.closest('.node');
-    if (!nodeEl?.dataset.id || nodeEl.dataset.id !== state.activeParamNodeId) return;
-    if (event.relatedTarget?.closest?.(`.param-panel[data-id="${nodeEl.dataset.id}"]`)) return;
-    scheduleParamPanelHide(nodeEl.dataset.id);
-  }, true);
-
-  els.world.addEventListener('mouseleave', event => {
-    const panelEl = event.target.closest('.param-panel');
-    if (!panelEl?.dataset.id || panelEl.dataset.id !== state.activeParamNodeId) return;
-    if (event.relatedTarget?.closest?.(`.node[data-id="${panelEl.dataset.id}"]`)) return;
-    scheduleParamPanelHide(panelEl.dataset.id);
-  }, true);
-
-  els.world.addEventListener('mouseenter', event => {
-    const panelEl = event.target.closest('.param-panel');
-    const nodeEl = event.target.closest('.node');
-    if ((panelEl?.dataset.id && panelEl.dataset.id === state.activeParamNodeId)
-      || (nodeEl?.dataset.id && nodeEl.dataset.id === state.activeParamNodeId)) {
-      window.clearTimeout(scheduleParamPanelHide.timer);
-    }
   }, true);
 
   els.world.addEventListener('click', event => {
