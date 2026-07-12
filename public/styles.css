@@ -2190,12 +2190,16 @@ label {
   white-space: nowrap;
 }
 
+.agent-input-wrap {
+  position: relative;
+}
+
 .agent-chatbar textarea {
   min-height: 170px;
   max-height: 42vh;
   resize: vertical;
   line-height: 1.5;
-  padding: 12px;
+  padding: 12px 58px 46px 12px;
   font-size: 13px;
 }
 
@@ -2323,13 +2327,30 @@ label {
 }
 
 .agent-send {
-  margin-left: auto;
-  width: 38px;
-  min-height: 38px;
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
   border-radius: 50%;
   background: #d9dde4;
   color: #111;
+  font-size: 20px;
   font-weight: 900;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .35);
+}
+
+.agent-send:hover {
+  background: #ccff00;
+  color: #081015;
+  transform: translateY(-1px);
+}
+
+.agent-send.is-running {
+  pointer-events: none;
+  opacity: .78;
 }
 
 

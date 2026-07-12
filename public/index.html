@@ -124,7 +124,10 @@
           <div id="agentRefs" class="agent-refs"></div>
         </div>
         <div id="agentRefMention" class="agent-ref-mention hidden"></div>
-        <textarea id="agentInput" placeholder="先上传参考图，再用 @ 引用，输入你的想法。"></textarea>
+        <div class="agent-input-wrap">
+          <textarea id="agentInput" placeholder="先上传参考图，再用 @ 引用，输入你的想法。"></textarea>
+          <button type="button" class="agent-send" title="发送给智能体">↑</button>
+        </div>
         <div class="agent-command-row">
           <div class="agent-run-mode" id="agentAskMode">
             <button type="button" class="active" data-agent-run="ask">Ask</button>
@@ -141,16 +144,13 @@
           <div class="agent-skill-picker">
             <button type="button" id="agentSkillToggle" class="agent-skill-toggle">✦ 加载 Skill</button>
             <div id="agentSkillMenu" class="agent-skill-menu hidden">
-              <button type="button" draggable="true" data-agent-skill="auto"><b>自动选择</b><span>根据任务自动挑选能力</span></button>
               <button type="button" draggable="true" data-agent-skill="seedance2-15s-prompt"><b>Seedance2 提示词</b><span>15秒视频分镜和电影镜头</span></button>
               <button type="button" draggable="true" data-agent-skill="imagegen"><b>图像生成 / 改图</b><span>生成图像、编辑图像、风格化</span></button>
               <button type="button" draggable="true" data-agent-skill="xyq-skill"><b>小云雀创作</b><span>图片、视频、短片创作</span></button>
               <button type="button" draggable="true" data-agent-skill="browser"><b>页面分析</b><span>网页资料整理和页面理解</span></button>
-              <button type="button" draggable="true" data-agent-skill="custom"><b>自定义 Skill</b><span>拖入输入框后自行补充指令</span></button>
             </div>
             <input type="file" id="agentSkillFileInput" accept=".md,.markdown,.txt,.json,.yaml,.yml" multiple hidden>
           </div>
-          <button type="button" class="agent-send">↑</button>
         </div>
       </div>
     </aside>

@@ -170,7 +170,6 @@ const GLOBAL_ASSETS_KEY = 'ai_canvas_global_assets';
 const CUSTOM_SKILLS_KEY = 'ai_canvas_custom_agent_skills';
 
 const AGENT_BUILTIN_SKILLS = [
-  ['auto', '自动选择', '根据任务自动挑选能力'],
   ['seedance2-15s-prompt', 'Seedance2 提示词', '15秒视频分镜和电影镜头'],
   ['imagegen', '图像生成 / 改图', '生成图像、编辑图像、风格化'],
   ['xyq-skill', '小云雀创作', '图片、视频、短片创作'],
@@ -503,13 +502,12 @@ function customSkillNameFromContent(file, content) {
   try {
     if (/\.json$/i.test(file.name)) {
       const data = JSON.parse(content);
-      if (data.name || data.title) return String(data.name || data.title).trim();
+      if (data.name || data.title) return String(file.name || data.name || data.title).trim();
     }
   } catch {
     // JSON 解析失败时退回文件名。
   }
-  const heading = content.match(/^\s*#\s+(.+)$/m)?.[1];
-  return (heading || file.name.replace(/\.(md|markdown|txt|json|ya?ml)$/i, '') || '自定义 Skill').trim();
+  return (file.name || '自定义 Skill').trim();
 }
 
 function customSkillDescFromContent(content) {
@@ -542,7 +540,10 @@ async function importCustomSkillFiles(files = []) {
   state.customSkills = normalizeCustomSkills([...imported, ...state.customSkills]);
   saveCustomSkills();
   renderAgentSkillMenu();
-  if (imported[0]) setAgentSkill(imported[0].id, { keepOpen: true });
+  if (imported[0]) {
+    setAgentSkill(imported[0].id, { keepOpen: true });
+    insertIntoAgentInput(agentSkillPrompt(imported[0].id));
+  }
   setStatus(`已加载 ${imported.length} 个自定义 Skill`);
 }
 
@@ -654,11 +655,54 @@ function addAgentReferenceNodes(start) {
   return nodes;
 }
 
-function executeAgentCommand() {
+function agentApiConfigured() {
+  return !!(state.config?.apis?.agent?.apiKey || '').trim();
+}
+
+async function callAgentModel(prompt) {
+  const res = await fetch('/api/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt,
+      model: els.agentModel?.value || state.config?.apis?.agent?.modelName || 'gpt-4.1-mini',
+      runMode: state.agentRunMode,
+      skill: agentSkillMeta(state.agentSkill),
+      references: state.agentRefs.map((ref, index) => ({
+        index: index + 1,
+        name: ref.name || `参考图${index + 1}`,
+        url: ref.url,
+      })),
+      clientConfig: state.config,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function executeAgentCommand() {
   const prompt = (els.agentInput?.value || '').trim();
   if (!prompt) {
     setStatus('先输入你要智能体完成的任务');
     return;
+  }
+  const sendButton = document.querySelector('.agent-send');
+  if (agentApiConfigured()) {
+    try {
+      sendButton?.classList.add('is-running');
+      recordAgentHistory('询问智能体', prompt.slice(0, 42));
+      appendAgentLog('正在发送给智能体', `模型：${els.agentModel?.value || 'GPT'}；Skill：${agentSkillLabel(state.agentSkill)}；参考图：${state.agentRefs.length} 张`);
+      const data = await callAgentModel(prompt);
+      appendAgentLog(`${data.model || els.agentModel?.value || 'GPT'} 回复`, data.text || '智能体没有返回文本');
+      setStatus('智能体已回复');
+      return;
+    } catch (err) {
+      appendAgentLog('智能体调用失败', `${err.message}\n\n已退回为画布执行节点，你也可以检查设置里的 Agent API Key。`);
+      setStatus(`智能体调用失败：${err.message}`);
+    } finally {
+      sendButton?.classList.remove('is-running');
+    }
   }
   recordAgentHistory('执行智能体', prompt.slice(0, 42));
   appendAgentLog('已生成执行节点', `模式：${state.agentRunMode}；Skill：${agentSkillLabel(state.agentSkill)}；参考图：${state.agentRefs.length} 张`);
@@ -5385,6 +5429,7 @@ function bindEvents() {
     if (!item) return;
     event.preventDefault();
     setAgentSkill(item.dataset.agentSkill);
+    insertIntoAgentInput(agentSkillPrompt(item.dataset.agentSkill));
   });
   els.agentSkillFileInput?.addEventListener('change', async () => {
     try {
@@ -5422,6 +5467,11 @@ function bindEvents() {
     insertIntoAgentInput(agentSkillPrompt(skill));
   });
   els.agentInput?.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      executeAgentCommand();
+      return;
+    }
     if (event.shiftKey && (event.key === '@' || event.code === 'Digit2')) {
       event.preventDefault();
       showAgentMentionPanel();

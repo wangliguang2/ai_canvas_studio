@@ -37,6 +37,13 @@ const DEFAULT_CONFIG = {
       referenceField: "image",
       identityPrompt: "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.",
     },
+    agent: {
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "",
+      modelName: "gpt-4.1-mini",
+      visionModel: "gpt-4.1-mini",
+      promptModel: "deepseek-chat",
+    },
   },
   models: {
     video: ["doubao-seedance-2.0"],
@@ -104,6 +111,13 @@ function configFromEnv() {
         endpointType: env("I2I_ENDPOINT_TYPE", "openai-edits"),
         referenceField: env("I2I_REFERENCE_FIELD", "image"),
         identityPrompt: env("I2I_IDENTITY_PROMPT", DEFAULT_CONFIG.apis.i2i.identityPrompt),
+      },
+      agent: {
+        baseUrl: env("AGENT_BASE_URL", DEFAULT_CONFIG.apis.agent.baseUrl),
+        apiKey: env("AGENT_API_KEY"),
+        modelName: env("AGENT_MODEL_NAME", DEFAULT_CONFIG.apis.agent.modelName),
+        visionModel: env("AGENT_VISION_MODEL", DEFAULT_CONFIG.apis.agent.visionModel),
+        promptModel: env("AGENT_PROMPT_MODEL", DEFAULT_CONFIG.apis.agent.promptModel),
       },
     },
   });
@@ -225,6 +239,53 @@ async function handleGenerate(req: Request) {
   return json({ ok: true, taskId, status: "queued" });
 }
 
+function agentEndpoint(baseUrl = "https://api.openai.com/v1") {
+  const root = String(baseUrl || "https://api.openai.com/v1").trim().replace(/\/$/, "");
+  if (root.endsWith("/chat/completions") || root.endsWith("/responses")) return root;
+  if (root.endsWith("/v1")) return `${root}/chat/completions`;
+  return `${root}/v1/chat/completions`;
+}
+
+async function handleAgent(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const config = deepMerge(configFromEnv(), body.clientConfig || {});
+  const api = config.apis?.agent || {};
+  const apiKey = String(api.apiKey || "").trim();
+  if (!apiKey) return json({ ok: false, error: "Agent API Key 为空。请在设置 > 智能体 填写 GPT/OpenAI 兼容 Key。" }, 400);
+  const model = body.model || api.modelName || "gpt-4.1-mini";
+  const skill = body.skill || {};
+  const refs = Array.isArray(body.references) ? body.references : [];
+  const refText = refs.length
+    ? `\n\n参考图：\n${refs.map((ref: any) => `@${ref.index || ""} ${ref.name || "参考图"}`).join("\n")}`
+    : "";
+  const system = [
+    "你是 AI 画布里的创作智能体，负责拆解需求、改写提示词、规划节点和给出可执行步骤。",
+    `运行模式：${body.runMode || "ask"}`,
+    skill?.name ? `当前 Skill：${skill.name}` : "",
+    skill?.content ? `Skill 内容：\n${skill.content}` : "",
+  ].filter(Boolean).join("\n\n");
+  const payload = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: `${body.prompt || ""}${refText}` },
+    ],
+    temperature: 0.7,
+  };
+  const res = await fetch(agentEndpoint(api.baseUrl), {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const data: any = await res.json().catch(async () => ({ error: await res.text() }));
+  if (!res.ok) return json({ ok: false, error: data?.error?.message || data?.error || `Agent HTTP ${res.status}` }, res.status);
+  const text = data?.choices?.[0]?.message?.content || data?.output_text || "";
+  return json({ ok: true, text, model, raw: data });
+}
+
 export default async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -265,6 +326,7 @@ export default async (req: Request) => {
     }
     if (req.method === "POST" && path === "/api/upload") return handleUpload(req);
     if (req.method === "POST" && path === "/api/generate") return handleGenerate(req);
+    if (req.method === "POST" && path === "/api/agent") return handleAgent(req);
     return json({ ok: false, error: "Not found" }, 404);
   } catch (error: any) {
     return json({ ok: false, error: error?.message || String(error) }, 500);

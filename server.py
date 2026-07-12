@@ -1058,6 +1058,61 @@ def run_video_task(task_id: str, config: dict, request_data: dict, model: str, p
         TASKS[task_id].update({"status": "failed", "error": str(exc)})
 
 
+def agent_endpoint(base_url: str) -> str:
+    root = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
+    if root.endswith("/chat/completions") or root.endswith("/responses"):
+        return root
+    if root.endswith("/v1"):
+        return f"{root}/chat/completions"
+    return f"{root}/v1/chat/completions"
+
+
+def call_agent_model(config: dict, body: dict) -> dict:
+    agent = config.get("apis", {}).get("agent", {})
+    api_key = (agent.get("apiKey") or "").strip()
+    if not api_key:
+        raise ValueError("Agent API Key 为空。请在设置 > 智能体 填写 GPT/OpenAI 兼容 Key。")
+    model = body.get("model") or agent.get("modelName") or "gpt-4.1-mini"
+    skill = body.get("skill") or {}
+    refs = body.get("references") or []
+    ref_text = ""
+    if refs:
+        lines = [f"@{ref.get('index', '')} {ref.get('name') or '参考图'}" for ref in refs]
+        ref_text = "\n\n参考图：\n" + "\n".join(lines)
+    system_parts = [
+        "你是 AI 画布里的创作智能体，负责拆解需求、改写提示词、规划节点和给出可执行步骤。",
+        f"运行模式：{body.get('runMode') or 'ask'}",
+    ]
+    if skill.get("name"):
+        system_parts.append(f"当前 Skill：{skill.get('name')}")
+    if skill.get("content"):
+        system_parts.append(f"Skill 内容：\n{skill.get('content')}")
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "\n\n".join(system_parts)},
+            {"role": "user", "content": f"{body.get('prompt') or ''}{ref_text}"},
+        ],
+        "temperature": 0.7,
+    }
+    res = requests.post(
+        agent_endpoint(agent.get("baseUrl") or "https://api.openai.com/v1"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    try:
+        data = res.json()
+    except Exception:
+        data = {"error": res.text}
+    if not res.ok:
+        err = data.get("error", {})
+        message = err.get("message") if isinstance(err, dict) else err
+        raise RuntimeError(message or f"Agent HTTP {res.status_code}")
+    text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content")) or data.get("output_text") or ""
+    return {"ok": True, "text": text, "model": model, "raw": data}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AICanvasStudio/0.1"
 
@@ -1099,7 +1154,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/generate":
             self.handle_generate()
             return
+        if path == "/api/agent":
+            self.handle_agent()
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+    def handle_agent(self) -> None:
+        body = self.read_json()
+        config = deep_merge(load_config(), body.get("clientConfig") or {})
+        try:
+            self.send_json(call_agent_model(config, body))
+        except ValueError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_GATEWAY)
 
     def handle_generate(self) -> None:
         config = load_config()
