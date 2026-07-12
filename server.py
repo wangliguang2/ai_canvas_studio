@@ -133,7 +133,7 @@ DEFAULT_CONFIG = {
     "defaults": {
         "videoModel": "doubao-seedance-2-0-260",
         "videoProvider": "ark",
-        "agentProvider": "doubao",
+        "agentProvider": "zhipu",
         "imageModel": "banana",
         "ratio": "16:9",
         "duration": 8,

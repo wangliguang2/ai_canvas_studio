@@ -856,7 +856,7 @@ function settingsInputValue(selector, fallback = '') {
 }
 
 function activeAgentConfig() {
-  const selected = els.agentModel?.value || state.config?.apis?.agent?.modelName || 'gpt-4.1-mini';
+  const selected = els.agentModel?.value || state.config?.defaults?.agentProvider || 'zhipu';
   const vendor = agentVendorForSelection(selected);
   if (vendor) {
     const item = state.config?.apis?.llmVendors?.[vendor] || LLM_VENDOR_DEFAULTS[vendor] || {};
@@ -1400,7 +1400,7 @@ function normalizeConfigShape(config) {
   cfg.models.image ||= ['banana', 'image2'];
   cfg.defaults ||= {};
   cfg.defaults.videoProvider = 'ark';
-  cfg.defaults.agentProvider ||= 'doubao';
+  cfg.defaults.agentProvider ||= 'zhipu';
   cfg.defaults.imageSettingsMode ||= 'standard';
   cfg.defaults.videoModel = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
   cfg.defaults.imageModel ||= cfg.models.image[0] || 'banana';
@@ -5707,7 +5707,7 @@ function applyConfigToUI() {
   document.querySelector('#agentModelName').value = cfg.apis.agent.modelName || 'gpt-4.1-mini';
   document.querySelector('#agentVisionModel').value = cfg.apis.agent.visionModel || 'gpt-4.1-mini';
   document.querySelector('#agentPromptModel').value = cfg.apis.agent.promptModel || 'deepseek-chat';
-  if (els.agentModel) els.agentModel.value = cfg.defaults.agentProvider || 'doubao';
+  if (els.agentModel) els.agentModel.value = cfg.defaults.agentProvider || 'zhipu';
   applyVendorSettingsToUI(cfg);
   document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
   updateVideoProviderUI();
@@ -5845,7 +5845,7 @@ function collectSettingsFromUI() {
   cfg.apis.agent.visionModel = document.querySelector('#agentVisionModel').value.trim() || cfg.apis.agent.modelName;
   cfg.apis.agent.promptModel = document.querySelector('#agentPromptModel').value.trim() || 'deepseek-chat';
   collectVendorSettingsFromUI(cfg);
-  cfg.defaults.agentProvider = els.agentModel?.value || 'doubao';
+  cfg.defaults.agentProvider = els.agentModel?.value || 'zhipu';
   cfg.models.video = [cfg.apis.ark.modelName].filter(Boolean);
   cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
   cfg.defaults.videoModel = cfg.apis.ark.modelName;
