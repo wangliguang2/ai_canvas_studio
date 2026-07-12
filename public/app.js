@@ -37,6 +37,7 @@
   restoring: false,
   hoverVideoNodeId: null,
   grid: { spacing: 20, dot: 1, linkWidth: 3 },
+  themeMode: 'dark',
   agentRefs: [],
   agentHistory: [],
   agentMode: 'agent',
@@ -92,6 +93,8 @@ const els = {
   projectBoard: document.querySelector('#projectBoard'),
   materialBoard: document.querySelector('#materialBoard'),
   projectTitleBar: document.querySelector('#projectTitleBar'),
+  themeModeToggle: document.querySelector('#themeModeToggle'),
+  themeModeMenu: document.querySelector('#themeModeMenu'),
   imageBalance: document.querySelector('#imageBalance'),
   videoBalance: document.querySelector('#videoBalance'),
   menuTitle: document.querySelector('#menuTitle'),
@@ -104,6 +107,7 @@ const els = {
   agentDock: document.querySelector('#agentDock'),
   closeAgentDock: document.querySelector('#closeAgentDock'),
   agentHistoryToggle: document.querySelector('#agentHistoryToggle'),
+  agentClearLog: document.querySelector('#agentClearLog'),
   agentHistoryPanel: document.querySelector('#agentHistoryPanel'),
   agentLog: document.querySelector('#agentLog'),
   agentFloat: document.querySelector('#agentFloat'),
@@ -447,6 +451,7 @@ function appendAgentLog(title, body = '', options = {}) {
   item.innerHTML = `
     <strong>${escapeHtml(title)}</strong>
     ${body ? `<p>${agentLogBodyHtml(body)}</p>` : ''}
+    ${body ? '<button type="button" class="agent-log-copy" data-agent-log-copy title="复制输出">⧉</button>' : ''}
     <time>${formatAgentHistoryTime(Date.now())}</time>
   `;
   els.agentLog.appendChild(item);
@@ -1313,11 +1318,47 @@ function persistCurrentProjectSnapshot(snapshot = canvasSnapshot()) {
   saveProjectStore();
 }
 
+function isLegacyStarterNode(node) {
+  if (!node) return false;
+  const title = String(node.title || '').trim();
+  const text = String(node.text || '').trim();
+  const emptyMedia = !node.url && !node.resultUrl && !node.taskId;
+  return emptyMedia && (
+    (node.type === 'prompt' && title === '主提示词' && text === '在这里写提示词，也可以连接到生成节点。')
+    || (node.type === 'image' && title === '常用参考图' && text === '右键上传图片后，可作为图生图/图生视频参考。')
+  );
+}
+
+function pruneLegacyStarterNodes() {
+  const removeIds = new Set(state.nodes.filter(isLegacyStarterNode).map(node => node.id));
+  if (!removeIds.size) return false;
+  state.nodes = state.nodes.filter(node => !removeIds.has(node.id));
+  state.links = state.links.filter(link => !removeIds.has(link.from) && !removeIds.has(link.to));
+  if (removeIds.has(state.selectedId)) state.selectedId = null;
+  state.selectedIds = state.selectedIds.filter(id => !removeIds.has(id));
+  return true;
+}
+
+function applyThemeMode(mode = state.themeMode) {
+  const next = ['dark', 'light', 'purple'].includes(mode) ? mode : 'dark';
+  state.themeMode = next;
+  document.body.dataset.theme = next;
+  localStorage.setItem('ai_canvas_theme_mode', next);
+  els.themeModeMenu?.querySelectorAll('[data-theme-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.themeMode === next);
+  });
+}
+
+function loadThemeMode() {
+  applyThemeMode(localStorage.getItem('ai_canvas_theme_mode') || 'dark');
+}
+
 function restoreSnapshot(snapshot) {
   const data = JSON.parse(snapshot);
   mergeLegacyAssetsFromSnapshot(data);
   state.nodes = (data.nodes || []).map(normalizeNode);
   state.links = data.links || [];
+  pruneLegacyStarterNodes();
   state.pan = data.pan || state.pan;
   state.scale = data.scale || state.scale;
   state.generationHistory = data.generationHistory || [];
@@ -1325,8 +1366,9 @@ function restoreSnapshot(snapshot) {
   state.selectedIds = [];
   state.selectedLinkId = null;
   state.activeParamNodeId = null;
-  state.lastSnapshot = snapshot;
-  localStorage.setItem('ai-canvas-studio', snapshot);
+  state.lastSnapshot = canvasSnapshot();
+  localStorage.setItem('ai-canvas-studio', state.lastSnapshot);
+  persistCurrentProjectSnapshot(state.lastSnapshot);
   applyTransform();
   render();
 }
@@ -1373,10 +1415,15 @@ function loadCanvas() {
       mergeLegacyAssetsFromSnapshot(data);
       state.nodes = (data.nodes || []).map(normalizeNode);
       state.links = data.links || [];
+      const prunedStarterNodes = pruneLegacyStarterNodes();
       state.pan = data.pan || state.pan;
       state.scale = data.scale || state.scale;
       state.generationHistory = data.generationHistory || [];
       state.lastSnapshot = canvasSnapshot();
+      if (prunedStarterNodes) {
+        localStorage.setItem('ai-canvas-studio', state.lastSnapshot);
+        persistCurrentProjectSnapshot(state.lastSnapshot);
+      }
       render();
       applyTransform();
       return;
@@ -1384,15 +1431,9 @@ function loadCanvas() {
   }
   const saved = localStorage.getItem('ai-canvas-studio');
   if (!saved) {
-    addNode('prompt', 50000, 50000, {
-      title: '主提示词',
-      text: '在这里写提示词，也可以连接到生成节点。',
-    });
-    addNode('image', 50280, 50000, {
-      title: '常用参考图',
-      text: '右键上传图片后，可作为图生图/图生视频参考。',
-    });
     ensureProjectStoreFromCurrent(canvasSnapshot());
+    render();
+    applyTransform();
     return;
   }
   try {
@@ -1400,11 +1441,13 @@ function loadCanvas() {
     mergeLegacyAssetsFromSnapshot(data);
     state.nodes = (data.nodes || []).map(normalizeNode);
     state.links = data.links || [];
+    const prunedStarterNodes = pruneLegacyStarterNodes();
     state.pan = data.pan || state.pan;
     state.scale = data.scale || state.scale;
     state.generationHistory = data.generationHistory || [];
     state.lastSnapshot = canvasSnapshot();
     ensureProjectStoreFromCurrent(state.lastSnapshot);
+    if (prunedStarterNodes) localStorage.setItem('ai-canvas-studio', state.lastSnapshot);
     render();
     applyTransform();
   } catch {
@@ -5230,12 +5273,18 @@ function applyConfigToUI() {
   document.querySelector('#multiSubmitModel').value = cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
   document.querySelector('#multiQueryModel').value = cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
   document.querySelector('#multiRequestFormat').value = cfg.apis.multimodal.requestFormat || 'responses-json';
-  document.querySelector('#multiResolution').value = cfg.apis.multimodal.resolution || '4K';
-  document.querySelector('#multiRatio').value = cfg.apis.multimodal.ratio || '16:9';
-  document.querySelector('#multiDuration').value = String(cfg.apis.multimodal.duration || 8);
-  document.querySelector('#multiWatermark').checked = !!cfg.apis.multimodal.watermark;
-  document.querySelector('#multiReturnLastFrame').checked = !!cfg.apis.multimodal.returnLastFrame;
-  document.querySelector('#multiWebSearch').checked = !!cfg.apis.multimodal.webSearch;
+  const multiResolution = document.querySelector('#multiResolution');
+  const multiRatio = document.querySelector('#multiRatio');
+  const multiDuration = document.querySelector('#multiDuration');
+  const multiWatermark = document.querySelector('#multiWatermark');
+  const multiReturnLastFrame = document.querySelector('#multiReturnLastFrame');
+  const multiWebSearch = document.querySelector('#multiWebSearch');
+  if (multiResolution) multiResolution.value = cfg.apis.multimodal.resolution || '4K';
+  if (multiRatio) multiRatio.value = cfg.apis.multimodal.ratio || '16:9';
+  if (multiDuration) multiDuration.value = String(cfg.apis.multimodal.duration || 8);
+  if (multiWatermark) multiWatermark.checked = !!cfg.apis.multimodal.watermark;
+  if (multiReturnLastFrame) multiReturnLastFrame.checked = !!cfg.apis.multimodal.returnLastFrame;
+  if (multiWebSearch) multiWebSearch.checked = !!cfg.apis.multimodal.webSearch;
   document.querySelector('#agentBaseUrl').value = cfg.apis.agent.baseUrl || 'https://api.openai.com/v1';
   document.querySelector('#agentApiKey').value = cfg.apis.agent.apiKey || '';
   document.querySelector('#agentModelName').value = cfg.apis.agent.modelName || 'gpt-4.1-mini';
@@ -5365,12 +5414,12 @@ function collectSettingsFromUI() {
   cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel').value.trim() || 'seedance-2-0-get';
   cfg.apis.multimodal.requestFormat = document.querySelector('#multiRequestFormat').value || 'responses-json';
   cfg.apis.multimodal.authMode = 'bearer';
-  cfg.apis.multimodal.resolution = document.querySelector('#multiResolution').value || '4K';
-  cfg.apis.multimodal.ratio = document.querySelector('#multiRatio').value || '16:9';
-  cfg.apis.multimodal.duration = Number(document.querySelector('#multiDuration').value || 8);
-  cfg.apis.multimodal.watermark = document.querySelector('#multiWatermark').checked;
-  cfg.apis.multimodal.returnLastFrame = document.querySelector('#multiReturnLastFrame').checked;
-  cfg.apis.multimodal.webSearch = document.querySelector('#multiWebSearch').checked;
+  cfg.apis.multimodal.resolution = document.querySelector('#multiResolution')?.value || cfg.apis.multimodal.resolution || '4K';
+  cfg.apis.multimodal.ratio = document.querySelector('#multiRatio')?.value || cfg.apis.multimodal.ratio || '16:9';
+  cfg.apis.multimodal.duration = Number(document.querySelector('#multiDuration')?.value || cfg.apis.multimodal.duration || 8);
+  cfg.apis.multimodal.watermark = false;
+  cfg.apis.multimodal.returnLastFrame = false;
+  cfg.apis.multimodal.webSearch = false;
   cfg.apis.agent.baseUrl = document.querySelector('#agentBaseUrl').value.trim() || 'https://api.openai.com/v1';
   cfg.apis.agent.apiKey = document.querySelector('#agentApiKey').value.trim();
   cfg.apis.agent.modelName = document.querySelector('#agentModelName').value.trim() || 'gpt-4.1-mini';
@@ -5436,6 +5485,22 @@ function bindEvents() {
     event.stopPropagation();
     els.gridSettingsPanel?.classList.toggle('hidden');
   });
+  els.themeModeToggle?.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    els.themeModeMenu?.classList.toggle('hidden');
+    els.themeModeToggle.classList.toggle('active', !els.themeModeMenu?.classList.contains('hidden'));
+  });
+  els.themeModeMenu?.addEventListener('click', event => {
+    const btn = event.target.closest('[data-theme-mode]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    applyThemeMode(btn.dataset.themeMode);
+    els.themeModeMenu.classList.add('hidden');
+    els.themeModeToggle?.classList.remove('active');
+    setStatus(`已切换${btn.textContent.trim()}`);
+  });
 
   els.agentFloat?.addEventListener('click', () => {
     els.agentDock?.classList.remove('hidden');
@@ -5457,6 +5522,25 @@ function bindEvents() {
     event.stopPropagation();
     renderAgentHistoryPanel();
     els.agentHistoryPanel?.classList.toggle('hidden');
+  });
+  els.agentClearLog?.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (els.agentLog) els.agentLog.innerHTML = '';
+    els.agentHistoryPanel?.classList.add('hidden');
+    setStatus('智能体输出已清空');
+  });
+  els.agentLog?.addEventListener('click', async event => {
+    const btn = event.target.closest('[data-agent-log-copy]');
+    if (!btn) return;
+    const text = btn.closest('.agent-log-item')?.querySelector('p')?.innerText || '';
+    if (!text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('已复制智能体输出');
+    } catch (err) {
+      setStatus(`复制失败：${err.message}`);
+    }
   });
   els.agentHistoryPanel?.addEventListener('click', event => {
     const restore = event.target.closest('[data-agent-history-restore]');
@@ -5586,7 +5670,7 @@ function bindEvents() {
       executeAgentCommand();
       return;
     }
-    if (event.shiftKey && (event.key === '@' || event.code === 'Digit2')) {
+    if (event.shiftKey && (event.key === '@' || event.key === '＠' || event.code === 'Digit2')) {
       event.preventDefault();
       showAgentMentionPanel();
     }
@@ -5594,6 +5678,11 @@ function bindEvents() {
       els.agentRefMention?.classList.add('hidden');
       els.agentHistoryPanel?.classList.add('hidden');
     }
+  });
+  els.agentInput?.addEventListener('beforeinput', event => {
+    if (event.data !== '@' && event.data !== '＠') return;
+    event.preventDefault();
+    showAgentMentionPanel();
   });
   els.agentRefMention?.addEventListener('click', event => {
     const item = event.target.closest('[data-agent-mention-index]');
@@ -5666,6 +5755,10 @@ function bindEvents() {
     if (!els.menu.contains(event.target)) hideMenu();
     if (!event.target.closest('#gridSettingsPanel') && !event.target.closest('#gridSettingsToggle')) {
       els.gridSettingsPanel?.classList.add('hidden');
+    }
+    if (!event.target.closest('#themeModeMenu') && !event.target.closest('#themeModeToggle')) {
+      els.themeModeMenu?.classList.add('hidden');
+      els.themeModeToggle?.classList.remove('active');
     }
   });
 
@@ -8293,6 +8386,7 @@ function finishSelection(clientX, clientY) {
 }
 
 async function init() {
+  loadThemeMode();
   await loadConfig();
   loadGridSettings();
   loadPromptPresets();

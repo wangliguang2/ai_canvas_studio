@@ -9,22 +9,35 @@
 <body>
   <div id="app">
     <aside class="rail">
-      <button class="rail-item active" data-tab="assets" title="资产">
-        <span>▣</span>
-        <em>资产</em>
-      </button>
-      <button class="rail-item" data-tab="history" title="历史">
-        <span>◷</span>
-        <em>历史</em>
-      </button>
-      <button id="settingsToggle" class="rail-item" title="设置">
-        <span>⚙</span>
-        <em>设置</em>
-      </button>
-      <button class="rail-item" data-tab="tools" title="模板">
-        <span>◫</span>
-        <em>模板</em>
-      </button>
+      <div class="rail-main">
+        <button class="rail-item active" data-tab="assets" title="资产">
+          <span>▣</span>
+          <em>资产</em>
+        </button>
+        <button class="rail-item" data-tab="history" title="历史">
+          <span>◷</span>
+          <em>历史</em>
+        </button>
+        <button class="rail-item" data-tab="tools" title="模板">
+          <span>◫</span>
+          <em>模板</em>
+        </button>
+      </div>
+      <div class="rail-bottom">
+        <button id="themeModeToggle" class="rail-item" type="button" title="模式">
+          <span>◐</span>
+          <em>模式</em>
+        </button>
+        <button id="settingsToggle" class="rail-item" type="button" title="设置">
+          <span>⚙</span>
+          <em>设置</em>
+        </button>
+      </div>
+      <div id="themeModeMenu" class="theme-mode-menu hidden">
+        <button type="button" data-theme-mode="dark">暗色模式</button>
+        <button type="button" data-theme-mode="light">白天模式</button>
+        <button type="button" data-theme-mode="purple">紫色模式</button>
+      </div>
     </aside>
 
     <aside class="leftbar">
@@ -111,6 +124,7 @@
         </div>
         <div class="agent-head-actions">
           <button type="button" id="agentHistoryToggle" title="历史记录">◷</button>
+          <button type="button" id="agentClearLog" title="清空输出">⌫</button>
           <button type="button" id="closeAgentDock">×</button>
         </div>
       </div>
@@ -167,7 +181,7 @@
           <button type="button" class="active" data-settings-tab="ark">火山视频</button>
           <button type="button" data-settings-tab="image">生图模型</button>
           <button type="button" data-settings-tab="i2i">图生图</button>
-          <button type="button" data-settings-tab="multi">多参模块</button>
+          <button type="button" data-settings-tab="multi">多参视频</button>
           <button type="button" data-settings-tab="vendors">大模型厂家</button>
         </div>
         <div class="settings-grid">
@@ -223,9 +237,9 @@
           </div>
           <div class="settings-multimodal" data-settings-panel="multi">
             <h3 class="settings-provider-title">
-              <label>多参模块</label>
+              <label>多参视频</label>
             </h3>
-            <p class="settings-note settings-note-right">DMXAPI 多模态参考生视频</p>
+            <p class="settings-note settings-note-right">多模态参考生视频</p>
             <label>API 地址</label>
             <input id="multiBaseUrl" placeholder="https://www.dmxapi.cn/v1/responses">
             <label>API Key</label>
@@ -241,47 +255,6 @@
             <select id="multiRequestFormat">
               <option value="responses-json">Responses JSON 多模态</option>
             </select>
-            <div class="compact-grid">
-              <div>
-                <label>分辨率</label>
-                <select id="multiResolution">
-                  <option>480p</option>
-                  <option>720p</option>
-                  <option>1080p</option>
-                  <option>4K</option>
-                </select>
-              </div>
-              <div>
-                <label>比例</label>
-                <select id="multiRatio">
-                  <option>16:9</option>
-                  <option>9:16</option>
-                  <option>1:1</option>
-                  <option>4:3</option>
-                  <option>3:4</option>
-                  <option>21:9</option>
-                  <option>adaptive</option>
-                </select>
-              </div>
-              <div>
-                <label>时长</label>
-                <select id="multiDuration">
-                  <option value="8">8 秒</option>
-                  <option value="9">9 秒</option>
-                  <option value="10">10 秒</option>
-                  <option value="11">11 秒</option>
-                  <option value="12">12 秒</option>
-                  <option value="13">13 秒</option>
-                  <option value="14">14 秒</option>
-                  <option value="15">15 秒</option>
-                </select>
-              </div>
-            </div>
-            <div class="settings-checks">
-              <label><input id="multiWatermark" type="checkbox"> 水印</label>
-              <label><input id="multiReturnLastFrame" type="checkbox"> 返回尾帧</label>
-              <label><input id="multiWebSearch" type="checkbox"> 联网搜索</label>
-            </div>
           </div>
           <div class="settings-llm-vendors" data-settings-panel="vendors">
             <h3 class="settings-provider-title">
