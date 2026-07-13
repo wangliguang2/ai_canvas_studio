@@ -84,11 +84,11 @@
         </div>
         <div class="status" id="status">就绪</div>
         <div class="volc-billing">
+          <a class="volc-recharge" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎官方账户页查看生图余额">生图余额</a>
           <a class="volc-balance" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎账户总览查看真实可用余额">
             <span>火山余额</span>
             <b>¥ --</b>
           </a>
-          <a class="volc-recharge" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎官方充值页面">充值</a>
         </div>
         <div class="top-actions">
           <button id="gridSettingsToggle" type="button" title="网格与连线设置">网格</button>
@@ -180,9 +180,8 @@
         </div>
         <div class="settings-tabs">
           <button type="button" class="active" data-settings-tab="ark">火山视频</button>
-          <button type="button" data-settings-tab="image">生图模型</button>
+          <button type="button" data-settings-tab="image">文生图</button>
           <button type="button" data-settings-tab="i2i">图生图</button>
-          <button type="button" data-settings-tab="multi">多参视频</button>
           <button type="button" data-settings-tab="vendors">大模型厂家</button>
         </div>
         <div class="settings-grid">
@@ -193,20 +192,29 @@
             <label>ARK_BASE_URL <span class="required">*</span></label>
             <input id="arkBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
             <label>ARK_API_KEY <span class="required">*</span></label>
-            <input id="arkApiKey" type="password" placeholder="建议用服务器环境变量 ARK_API_KEY">
+            <div class="secret-row">
+              <input id="arkApiKey" type="password" placeholder="建议用服务器环境变量 ARK_API_KEY">
+              <button type="button" data-toggle-secret="#arkApiKey">显示</button>
+            </div>
             <label>ARK_MODEL <span class="required">*</span></label>
             <input id="arkModel" placeholder="doubao-seedance-2-0-260">
           </div>
           <div class="settings-image-standard" data-settings-panel="image">
             <h3 class="settings-provider-title">
-              <label><input type="radio" name="imageSettingsMode" id="imageModeStandard" value="standard"> 生图模型</label>
+              <label>文生图模型</label>
             </h3>
             <label>Banana API Key</label>
-            <input id="bananaApiKey" type="password">
+            <div class="secret-row">
+              <input id="bananaApiKey" type="password">
+              <button type="button" data-toggle-secret="#bananaApiKey">显示</button>
+            </div>
             <label>Banana 网站</label>
             <input id="bananaWebsite">
             <label>Image2 API Key</label>
-            <input id="image2ApiKey" type="password">
+            <div class="secret-row">
+              <input id="image2ApiKey" type="password">
+              <button type="button" data-toggle-secret="#image2ApiKey">显示</button>
+            </div>
             <label>Image2 网站</label>
             <input id="image2Website">
             <label>Image2 实际模型 ID</label>
@@ -216,7 +224,7 @@
           </div>
           <div class="settings-i2i" data-settings-panel="i2i">
             <h3 class="settings-provider-title">
-              <label><input type="radio" name="imageSettingsMode" id="imageModeI2i" value="i2i"> 图生图模型</label>
+              <label>图生图模型</label>
             </h3>
             <p class="settings-note settings-note-right">留空后自行填写</p>
             <label>图生图 API 地址</label>
@@ -235,27 +243,6 @@
             <input id="i2iWebsite" class="hidden-field" type="hidden">
             <input id="i2iReferenceField" class="hidden-field" type="hidden" value="image">
             <textarea id="i2iIdentityPrompt" class="hidden-field" rows="1"></textarea>
-          </div>
-          <div class="settings-multimodal" data-settings-panel="multi">
-            <h3 class="settings-provider-title">
-              <label>多参视频</label>
-            </h3>
-            <p class="settings-note settings-note-right">多模态参考生视频</p>
-            <label>API 地址</label>
-            <input id="multiBaseUrl" placeholder="https://www.dmxapi.cn/v1/responses">
-            <label>API Key</label>
-            <div class="secret-row">
-              <input id="multiApiKey" type="password">
-              <button type="button" data-toggle-secret="#multiApiKey">显示</button>
-            </div>
-            <label>提交模型</label>
-            <input id="multiSubmitModel" placeholder="doubao-seedance-2-0-260128">
-            <label>查询模型</label>
-            <input id="multiQueryModel" placeholder="seedance-2-0-get">
-            <label>请求格式</label>
-            <select id="multiRequestFormat">
-              <option value="responses-json">Responses JSON 多模态</option>
-            </select>
           </div>
           <div class="settings-llm-vendors" data-settings-panel="vendors">
             <h3 class="settings-provider-title">

@@ -1076,6 +1076,231 @@ function addAgentSegmentsToCanvas(prompt = '', text = '') {
   return segments.length;
 }
 
+const AGENT_IMAGE_CATEGORY_ALIASES = [
+  { key: 'character', label: '角色', pattern: /^(角色|人物|主角|配角|character|characters|role|roles)$/i },
+  { key: 'scene', label: '场景', pattern: /^(场景|环境|空间|地点|scene|scenes|environment|location)$/i },
+  { key: 'prop', label: '道具', pattern: /^(道具|物品|产品|服化道|prop|props|object|objects|item|items)$/i },
+];
+
+function agentImageCategory(raw = '') {
+  const clean = String(raw || '').replace(/[【】\[\]#*：:\s]/g, '').trim();
+  const exact = AGENT_IMAGE_CATEGORY_ALIASES.find(item => item.pattern.test(clean));
+  if (exact) return exact;
+  if (/^(角色|人物|主角|配角|角色设定|人物设定|character|characters|role|roles)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[0];
+  if (/^(场景|环境|空间|地点|场景设定|场景设计|scene|scenes|environment|location)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[1];
+  if (/^(道具|物品|产品|服化道|道具清单|道具设定|prop|props|object|objects|item|items)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[2];
+  return null;
+}
+
+function shouldCreateImage2Tasks(prompt = '', text = '') {
+  const ask = String(prompt || '');
+  const output = String(text || '');
+  const wantsImage = /(image\s*2|image2|gpt-image-2|生图|生成图片|生成图像|文生图|画图|出图)/i.test(ask);
+  const hasCategory = /(角色|人物|场景|环境|道具|物品|产品|character|scene|prop)/i.test(output);
+  return wantsImage && hasCategory;
+}
+
+function stripPromptPrefix(value = '') {
+  return String(value || '')
+    .replace(/^\s*(提示词|生图提示词|画面提示词|prompt)\s*[：:]\s*/i, '')
+    .trim();
+}
+
+function cleanImageTaskName(value = '', fallback = '未命名') {
+  return String(value || fallback)
+    .replace(/^[\s\-*•\d.、)）]+/, '')
+    .replace(/\*\*/g, '')
+    .replace(/[《》"'“”]/g, '')
+    .trim()
+    .slice(0, 28) || fallback;
+}
+
+function isPromptLabel(value = '') {
+  return /^(提示词|生图提示词|画面提示词|prompt)$/i.test(String(value || '').trim());
+}
+
+function parseAgentImageEntries(block = '', category) {
+  const lines = String(block || '').replace(/\r\n/g, '\n').split('\n');
+  const entries = [];
+  let current = null;
+  const entryPattern = /^\s*(?:[-*•]|\d+[.)、）])?\s*(?:\*\*)?([^：:\n]{1,32}?)(?:\*\*)?\s*[：:]\s*(.+)$/;
+  const headingPattern = /^\s*(?:#{1,6}\s*)?([^：:\n]{1,32})\s*$/;
+  const flush = () => {
+    if (!current) return;
+    const promptText = stripPromptPrefix(current.parts.join('\n').trim());
+    const itemCategory = current.category || category;
+    if (promptText) entries.push({ category: itemCategory, name: cleanImageTaskName(current.name, `${itemCategory.label}${entries.length + 1}`), prompt: promptText });
+    current = null;
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (current) current.parts.push('');
+      continue;
+    }
+    const bracket = trimmed.match(/^\s*\[(角色|人物|场景|环境|道具|物品|产品)\s*[-：:]?\s*([^\]]*)\]\s*(.*)$/i);
+    if (bracket) {
+      flush();
+      const inlineCategory = agentImageCategory(bracket[1]) || category;
+      current = {
+        name: cleanImageTaskName(bracket[2] || `${inlineCategory.label}${entries.length + 1}`, `${inlineCategory.label}${entries.length + 1}`),
+        parts: [bracket[3] || ''],
+        category: inlineCategory,
+      };
+      current.category = inlineCategory;
+      continue;
+    }
+    const entry = trimmed.match(entryPattern);
+    if (entry && !agentImageCategory(entry[1])) {
+      if (isPromptLabel(entry[1]) && current) {
+        current.parts.push(entry[2]);
+        continue;
+      }
+      flush();
+      current = { name: cleanImageTaskName(entry[1], `${category.label}${entries.length + 1}`), parts: [entry[2]], category };
+      continue;
+    }
+    const heading = trimmed.match(headingPattern);
+    if (heading && !agentImageCategory(heading[1]) && !isPromptLabel(heading[1])) {
+      if (!current || current.parts.length) {
+        flush();
+        current = { name: cleanImageTaskName(heading[1], `${category.label}${entries.length + 1}`), parts: [], category };
+      } else {
+        current.name = cleanImageTaskName(heading[1], current.name);
+      }
+      continue;
+    }
+    if (!current) current = { name: `${category.label}${entries.length + 1}`, parts: [], category };
+    current.parts.push(line);
+  }
+  flush();
+  return entries.map(item => ({ ...item, category: item.category || category }));
+}
+
+function parseLooseAgentImageTasks(text = '') {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const tasks = [];
+  let current = null;
+  const flush = () => {
+    if (!current) return;
+    const promptText = stripPromptPrefix(current.parts.join('\n').trim());
+    if (promptText) tasks.push({ ...current, prompt: promptText });
+    current = null;
+  };
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (current) current.parts.push('');
+      return;
+    }
+    const categoryName = trimmed.match(/^\s*(?:[-*•]|\d+[.)、）])?\s*(?:\*\*)?(角色|人物|主角|配角|场景|环境|空间|地点|道具|物品|产品|服化道)(?:设定|设计|清单)?(?:\*\*)?\s*[：:\-]\s*([^：:\n]{1,40})\s*$/i);
+    if (categoryName) {
+      flush();
+      const category = agentImageCategory(categoryName[1]);
+      current = {
+        category,
+        name: cleanImageTaskName(categoryName[2], `${category.label}${tasks.length + 1}`),
+        parts: [],
+      };
+      return;
+    }
+    const categoryInline = trimmed.match(/^\s*(?:[-*•]|\d+[.)、）])?\s*(?:\*\*)?(角色|人物|主角|配角|场景|环境|空间|地点|道具|物品|产品|服化道)(?:设定|设计|清单)?(?:\*\*)?\s*[：:\-]\s*([^：:\n]{1,40})\s*[：:]\s*(.+)$/i);
+    if (categoryInline) {
+      flush();
+      const category = agentImageCategory(categoryInline[1]);
+      current = {
+        category,
+        name: cleanImageTaskName(categoryInline[2], `${category.label}${tasks.length + 1}`),
+        parts: [categoryInline[3]],
+      };
+      return;
+    }
+    const promptLine = trimmed.match(/^\s*(提示词|生图提示词|画面提示词|prompt)\s*[：:]\s*(.+)$/i);
+    if (promptLine && current) {
+      current.parts.push(promptLine[2]);
+      return;
+    }
+    if (current) current.parts.push(line);
+  });
+  flush();
+  return tasks;
+}
+
+function parseAgentImageTasks(text = '') {
+  const source = String(text || '').replace(/\r\n/g, '\n');
+  const headerRegex = /^\s*(?:#{1,6}\s*)?(?:\[(角色|人物|场景|环境|道具|物品|产品|character|characters|scene|scenes|prop|props|object|objects)\]|(角色|人物|场景|环境|道具|物品|产品|character|characters|scene|scenes|prop|props|object|objects))\s*[：:]?\s*$/gim;
+  const matches = [...source.matchAll(headerRegex)];
+  const tasks = [];
+  tasks.push(...parseLooseAgentImageTasks(source));
+  if (matches.length) {
+    matches.forEach((match, index) => {
+      const category = agentImageCategory(match[1] || match[2]);
+      if (!category) return;
+      const start = (match.index || 0) + match[0].length;
+      const end = index + 1 < matches.length ? matches[index + 1].index || source.length : source.length;
+      tasks.push(...parseAgentImageEntries(source.slice(start, end), category));
+    });
+  } else {
+    const lineTasks = [];
+    source.split('\n').forEach(line => {
+      const hit = line.match(/^\s*(?:[-*•]|\d+[.)、）])?\s*(角色|人物|场景|环境|道具|物品|产品)\s*[-：:]\s*([^：:\n]{1,28})\s*[：:]\s*(.+)$/i);
+      if (!hit) return;
+      const category = agentImageCategory(hit[1]);
+      if (!category) return;
+      lineTasks.push({ category, name: cleanImageTaskName(hit[2], category.label), prompt: stripPromptPrefix(hit[3]) });
+    });
+    tasks.push(...lineTasks);
+  }
+  const seen = new Set();
+  return tasks
+    .filter(item => item.prompt && item.prompt.length > 8)
+    .filter(item => {
+      const key = `${item.category.key}:${item.name}:${item.prompt.slice(0, 60)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 18);
+}
+
+function addAgentImageTasksToCanvas(prompt = '', text = '') {
+  if (!shouldCreateImage2Tasks(prompt, text)) return 0;
+  const tasks = parseAgentImageTasks(text);
+  if (!tasks.length) return 0;
+  const anchor = agentCanvasAnchor();
+  const order = ['character', 'scene', 'prop'];
+  const grouped = order
+    .map(key => tasks.filter(task => task.category.key === key))
+    .filter(group => group.length);
+  const width = 430;
+  const gapX = 34;
+  const gapY = 46;
+  const rowHeight = 330;
+  const created = [];
+  let y = anchor.y;
+  grouped.forEach(group => {
+    group.forEach((task, index) => {
+      const node = addNode('t2i', anchor.x + index * (width + gapX), y, {
+        title: `${task.category.label}-${task.name}`,
+        text: task.prompt,
+        model: 'image2',
+        aspect: '16:9',
+        quality: '2k',
+        imageCount: 1,
+        w: width,
+        keepTitle: true,
+      });
+      created.push(node);
+    });
+    y += rowHeight + gapY;
+  });
+  setStatus(`已创建 ${created.length} 个 image2 生图节点，按角色/场景/道具排放`);
+  created.forEach((node, index) => {
+    window.setTimeout(() => generateImageFromNode(node.id), index * 220);
+  });
+  return created.length;
+}
+
 function createVideoReversePromptNode(nodeId) {
   const source = state.nodes.find(node => node.id === nodeId);
   if (!source || !['t2v', 'i2v', 'video'].includes(source.type)) return;
@@ -1154,6 +1379,7 @@ async function executeAgentCommand() {
         updateAgentLogBody(assistantItem, fullText || '正在生成...');
       });
       if (!fullText.trim()) updateAgentLogBody(assistantItem, '智能体没有返回文本');
+      addAgentImageTasksToCanvas(prompt, fullText);
       addAgentSegmentsToCanvas(prompt, fullText);
       setStatus('智能体已回复');
       return;
@@ -1440,7 +1666,7 @@ function normalizeConfigShape(config) {
   cfg.defaults ||= {};
   cfg.defaults.videoProvider = 'ark';
   cfg.defaults.agentProvider ||= 'zhipu';
-  cfg.defaults.imageSettingsMode ||= 'standard';
+  cfg.defaults.imageSettingsMode ||= 'both';
   cfg.defaults.videoModel = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
   cfg.defaults.imageModel ||= cfg.models.image[0] || 'banana';
   cfg.apis.ark.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
@@ -2042,6 +2268,7 @@ function addNode(type, x, y, data = {}) {
     disabled: !!data.disabled,
     flipX: !!data.flipX,
     flipY: !!data.flipY,
+    keepTitle: !!data.keepTitle,
     preset: data.preset || '',
     panelW: data.panelW || 680,
     panelH: data.panelH || 180,
@@ -2934,7 +3161,7 @@ function markTopSection(mode = 't2i') {
 }
 
 function activateCanvasMode(mode = state.mode || 'i2i') {
-  const nextMode = mode === 't2i' ? 'i2i' : mode;
+  const nextMode = mode;
   state.mode = nextMode;
   state.projectView = false;
   state.materialView = false;
@@ -5376,7 +5603,7 @@ async function generateImageFromNode(nodeId) {
       node.progressPercent = 0;
       node.progressText = '';
       addGenerationHistory({
-        title: `${node.model || 'image2'} 输出`,
+        title: node.title || `${node.model || 'image2'} 输出`,
         kind: node.type === 'i2i' ? '图生图' : '文生图',
         url: data.url,
         mime: 'image/png',
@@ -5581,7 +5808,7 @@ async function pollNodeTask(nodeId, taskId) {
       node.url = task.url;
       const isImageNode = ['t2i', 'i2i'].includes(node.type);
       node.mime = isImageNode ? 'image/png' : 'video/mp4';
-      node.title = `${node.model || (isImageNode ? 'image2' : 'doubao-seedance-2.0')} 输出`;
+      if (!node.keepTitle) node.title = `${node.model || (isImageNode ? 'image2' : 'doubao-seedance-2.0')} 输出`;
       node.taskStatus = isImageNode ? '' : 'succeeded';
       node.progressPercent = isImageNode ? 0 : 100;
       node.progressText = isImageNode ? '' : '生成成功';
@@ -5710,8 +5937,6 @@ function applyConfigToUI() {
 
   cfg.defaults.videoProvider = 'ark';
   document.querySelector('#providerArk').checked = true;
-  document.querySelector('#imageModeStandard').checked = (cfg.defaults.imageSettingsMode || 'standard') === 'standard';
-  document.querySelector('#imageModeI2i').checked = cfg.defaults.imageSettingsMode === 'i2i';
   document.querySelector('#arkBaseUrl').value = cfg.apis.ark.baseUrl || '';
   document.querySelector('#arkApiKey').value = cfg.apis.ark.apiKey || '';
   document.querySelector('#arkModel').value = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
@@ -5727,11 +5952,16 @@ function applyConfigToUI() {
   document.querySelector('#i2iEndpointType').value = cfg.apis.i2i.endpointType || 'custom-edits';
   document.querySelector('#i2iReferenceField').value = cfg.apis.i2i.referenceField || 'image';
   document.querySelector('#i2iIdentityPrompt').value = cfg.apis.i2i.identityPrompt || '';
-  document.querySelector('#multiBaseUrl').value = cfg.apis.multimodal.baseUrl || 'https://www.dmxapi.cn/v1/responses';
-  document.querySelector('#multiApiKey').value = cfg.apis.multimodal.apiKey || '';
-  document.querySelector('#multiSubmitModel').value = cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
-  document.querySelector('#multiQueryModel').value = cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
-  document.querySelector('#multiRequestFormat').value = cfg.apis.multimodal.requestFormat || 'responses-json';
+  const multiBaseUrl = document.querySelector('#multiBaseUrl');
+  const multiApiKey = document.querySelector('#multiApiKey');
+  const multiSubmitModel = document.querySelector('#multiSubmitModel');
+  const multiQueryModel = document.querySelector('#multiQueryModel');
+  const multiRequestFormat = document.querySelector('#multiRequestFormat');
+  if (multiBaseUrl) multiBaseUrl.value = cfg.apis.multimodal.baseUrl || 'https://www.dmxapi.cn/v1/responses';
+  if (multiApiKey) multiApiKey.value = cfg.apis.multimodal.apiKey || '';
+  if (multiSubmitModel) multiSubmitModel.value = cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
+  if (multiQueryModel) multiQueryModel.value = cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
+  if (multiRequestFormat) multiRequestFormat.value = cfg.apis.multimodal.requestFormat || 'responses-json';
   const multiResolution = document.querySelector('#multiResolution');
   const multiRatio = document.querySelector('#multiRatio');
   const multiDuration = document.querySelector('#multiDuration');
@@ -5753,7 +5983,6 @@ function applyConfigToUI() {
   applyVendorSettingsToUI(cfg);
   document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
   updateVideoProviderUI();
-  updateImageSettingsModeUI();
 }
 
 function updateVideoProviderUI() {
@@ -5772,17 +6001,15 @@ function updateVideoProviderUI() {
 }
 
 function updateImageSettingsModeUI() {
-  const mode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
   const standard = document.querySelector('.settings-image-standard');
   const i2i = document.querySelector('.settings-i2i');
   [
-    [standard, mode !== 'standard'],
-    [i2i, mode !== 'i2i'],
+    [standard, false],
+    [i2i, false],
   ].forEach(([panel, disabled]) => {
     if (!panel) return;
     panel.classList.toggle('settings-panel-disabled', disabled);
     panel.querySelectorAll('input, select, textarea').forEach(input => {
-      if (input.name === 'imageSettingsMode') return;
       input.disabled = disabled;
     });
   });
@@ -5851,7 +6078,7 @@ function collectVendorSettingsFromUI(cfg) {
 function collectSettingsFromUI() {
   const cfg = normalizeConfigShape(state.config);
   cfg.defaults.videoProvider = 'ark';
-  cfg.defaults.imageSettingsMode = document.querySelector('input[name="imageSettingsMode"]:checked')?.value || 'standard';
+  cfg.defaults.imageSettingsMode = 'both';
   cfg.apis.ark.baseUrl = document.querySelector('#arkBaseUrl').value.trim();
   cfg.apis.ark.apiKey = secretValue(['apis', 'ark', 'apiKey'], document.querySelector('#arkApiKey').value, cfg.apis.ark.apiKey);
   cfg.apis.ark.website = cfg.apis.ark.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
@@ -5868,12 +6095,12 @@ function collectSettingsFromUI() {
   cfg.apis.i2i.endpointType = document.querySelector('#i2iEndpointType').value || 'custom-edits';
   cfg.apis.i2i.referenceField = 'image';
   cfg.apis.i2i.identityPrompt = document.querySelector('#i2iIdentityPrompt').value.trim();
-  cfg.apis.multimodal.baseUrl = document.querySelector('#multiBaseUrl').value.trim() || 'https://www.dmxapi.cn/v1/responses';
-  cfg.apis.multimodal.apiKey = secretValue(['apis', 'multimodal', 'apiKey'], document.querySelector('#multiApiKey').value, cfg.apis.multimodal.apiKey);
+  cfg.apis.multimodal.baseUrl = document.querySelector('#multiBaseUrl')?.value.trim() || cfg.apis.multimodal.baseUrl || 'https://www.dmxapi.cn/v1/responses';
+  cfg.apis.multimodal.apiKey = secretValue(['apis', 'multimodal', 'apiKey'], document.querySelector('#multiApiKey')?.value, cfg.apis.multimodal.apiKey);
   cfg.apis.multimodal.website = 'https://www.dmxapi.cn';
-  cfg.apis.multimodal.submitModel = document.querySelector('#multiSubmitModel').value.trim() || 'doubao-seedance-2-0-260128';
-  cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel').value.trim() || 'seedance-2-0-get';
-  cfg.apis.multimodal.requestFormat = document.querySelector('#multiRequestFormat').value || 'responses-json';
+  cfg.apis.multimodal.submitModel = document.querySelector('#multiSubmitModel')?.value.trim() || cfg.apis.multimodal.submitModel || 'doubao-seedance-2-0-260128';
+  cfg.apis.multimodal.queryModel = document.querySelector('#multiQueryModel')?.value.trim() || cfg.apis.multimodal.queryModel || 'seedance-2-0-get';
+  cfg.apis.multimodal.requestFormat = document.querySelector('#multiRequestFormat')?.value || cfg.apis.multimodal.requestFormat || 'responses-json';
   cfg.apis.multimodal.authMode = 'bearer';
   cfg.apis.multimodal.resolution = document.querySelector('#multiResolution')?.value || cfg.apis.multimodal.resolution || '4K';
   cfg.apis.multimodal.ratio = document.querySelector('#multiRatio')?.value || cfg.apis.multimodal.ratio || '16:9';
