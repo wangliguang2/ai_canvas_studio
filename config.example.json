@@ -38,6 +38,12 @@
                                     "website":  "https://happyhorse.com",
                                     "modelName":  "happyhorse-video"
                                 },
+                 "i2iBanana":  {
+                                   "baseUrl":  "",
+                                   "apiKey":  "",
+                                   "website":  "",
+                                   "modelName":  "banana-edit"
+                               },
                  "i2i":  {
                               "baseUrl":  "",
                               "apiKey":  "",
@@ -46,7 +52,13 @@
                               "endpointType":  "openai-edits",
                               "referenceField":  "image",
                               "identityPrompt":  "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user."
-                            }
+                            },
+                 "i2iSeedream":  {
+                                     "baseUrl":  "https://ark.cn-beijing.volces.com/api/v3",
+                                     "apiKey":  "",
+                                     "website":  "https://ark.cn-beijing.volces.com",
+                                     "modelName":  "seedream-5-0-pro"
+                                 }
              },
     "models":  {
                    "video":  [

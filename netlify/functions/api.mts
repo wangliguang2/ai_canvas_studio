@@ -46,6 +46,12 @@ const DEFAULT_CONFIG = {
       website: "https://ark.cn-beijing.volces.com",
       modelName: "seedream-5-0-pro",
     },
+    i2iBanana: {
+      baseUrl: "",
+      apiKey: "",
+      website: "",
+      modelName: "banana-edit",
+    },
     i2i: {
       baseUrl: "",
       apiKey: "",
@@ -54,6 +60,12 @@ const DEFAULT_CONFIG = {
       endpointType: "openai-edits",
       referenceField: "image",
       identityPrompt: "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.",
+    },
+    i2iSeedream: {
+      baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      apiKey: "",
+      website: "https://ark.cn-beijing.volces.com",
+      modelName: "seedream-5-0-pro",
     },
     agent: {
       baseUrl: "https://api.openai.com/v1",
@@ -184,6 +196,12 @@ function configFromEnv() {
         website: env("SEEDREAM_WEBSITE", DEFAULT_CONFIG.apis.seedream.website),
         modelName: env("SEEDREAM_MODEL", DEFAULT_CONFIG.apis.seedream.modelName),
       },
+      i2iBanana: {
+        baseUrl: env("I2I_BANANA_BASE_URL"),
+        apiKey: env("I2I_BANANA_API_KEY"),
+        website: env("I2I_BANANA_WEBSITE"),
+        modelName: env("I2I_BANANA_MODEL", "banana-edit"),
+      },
       i2i: {
         baseUrl: env("I2I_BASE_URL"),
         apiKey: env("I2I_API_KEY"),
@@ -192,6 +210,12 @@ function configFromEnv() {
         endpointType: env("I2I_ENDPOINT_TYPE", "openai-edits"),
         referenceField: env("I2I_REFERENCE_FIELD", "image"),
         identityPrompt: env("I2I_IDENTITY_PROMPT", DEFAULT_CONFIG.apis.i2i.identityPrompt),
+      },
+      i2iSeedream: {
+        baseUrl: env("I2I_SEEDREAM_BASE_URL", DEFAULT_CONFIG.apis.i2iSeedream.baseUrl),
+        apiKey: env("I2I_SEEDREAM_API_KEY"),
+        website: env("I2I_SEEDREAM_WEBSITE", DEFAULT_CONFIG.apis.i2iSeedream.website),
+        modelName: env("I2I_SEEDREAM_MODEL", DEFAULT_CONFIG.apis.i2iSeedream.modelName),
       },
       agent: {
         baseUrl: env("AGENT_BASE_URL", DEFAULT_CONFIG.apis.agent.baseUrl),

@@ -75,6 +75,21 @@ function imageEditEndpoint(api: any) {
   return `${root}/v1/images/edits`;
 }
 
+function imageEditApiForModel(config: any, model: string) {
+  const apis = config?.apis || {};
+  const key = String(model || "image2").toLowerCase();
+  const candidates: string[] = key === "banana"
+    ? ["i2iBanana", "i2i"]
+    : key === "seedream"
+      ? ["i2iSeedream", "i2i"]
+      : ["i2i"];
+  for (const name of candidates) {
+    const api = apis[name] || {};
+    if (String(api.apiKey || "").trim() && String(api.modelName || "").trim()) return api;
+  }
+  return apis[candidates[0]] || apis.i2i || {};
+}
+
 async function storeImageFromBase64(b64: string, req: Request) {
   const id = `img_${crypto.randomUUID().replace(/-/g, "")}.png`;
   await imageStore().set(id, Buffer.from(b64, "base64"), { metadata: { contentType: "image/png" } });
@@ -271,10 +286,13 @@ export default async (req: Request) => {
   const store = taskStore();
   const startedAt = Date.now();
   const isVideo = body.mode === "t2v" || body.mode === "i2v";
+  const requestedImageModel = String(body.model || config.defaults?.imageModel || "image2");
   const model = isVideo
     ? (body.model || config.apis?.ark?.modelName || config.defaults?.videoModel || "doubao-seedance-2-0-260")
-    : body.mode === "i2i" ? "i2i" : (body.model || config.defaults?.imageModel || "image2");
-  const api = config.apis?.[model] || config.apis?.image2 || {};
+    : body.mode === "i2i" ? requestedImageModel : requestedImageModel;
+  const api = body.mode === "i2i"
+    ? imageEditApiForModel(config, requestedImageModel)
+    : (config.apis?.[model] || config.apis?.image2 || {});
 
   try {
     await store.setJSON(taskId, {

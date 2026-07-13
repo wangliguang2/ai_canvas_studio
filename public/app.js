@@ -1881,7 +1881,9 @@ function secretPaths() {
     ['apis', 'banana', 'apiKey'],
     ['apis', 'image2', 'apiKey'],
     ['apis', 'seedream', 'apiKey'],
+    ['apis', 'i2iBanana', 'apiKey'],
     ['apis', 'i2i', 'apiKey'],
+    ['apis', 'i2iSeedream', 'apiKey'],
     ['apis', 'multimodal', 'apiKey'],
     ['apis', 'agent', 'apiKey'],
   ];
@@ -1889,6 +1891,38 @@ function secretPaths() {
     paths.push(['apis', 'llmVendors', vendor, 'apiKey']);
   }
   return paths;
+}
+
+function pathKey(path) {
+  return path.join('.');
+}
+
+const SECRET_INPUT_PATHS = {
+  arkApiKey: ['apis', 'ark', 'apiKey'],
+  klingApiKey: ['apis', 'kling', 'apiKey'],
+  happyhorseApiKey: ['apis', 'happyhorse', 'apiKey'],
+  bananaApiKey: ['apis', 'banana', 'apiKey'],
+  image2ApiKey: ['apis', 'image2', 'apiKey'],
+  seedreamApiKey: ['apis', 'seedream', 'apiKey'],
+  i2iBananaApiKey: ['apis', 'i2iBanana', 'apiKey'],
+  i2iApiKey: ['apis', 'i2i', 'apiKey'],
+  i2iSeedreamApiKey: ['apis', 'i2iSeedream', 'apiKey'],
+  multiApiKey: ['apis', 'multimodal', 'apiKey'],
+  agentApiKey: ['apis', 'agent', 'apiKey'],
+  vendorDoubaoApiKey: ['apis', 'llmVendors', 'doubao', 'apiKey'],
+  vendorQwenApiKey: ['apis', 'llmVendors', 'qwen', 'apiKey'],
+  vendorDeepseekApiKey: ['apis', 'llmVendors', 'deepseek', 'apiKey'],
+  vendorKimiApiKey: ['apis', 'llmVendors', 'kimi', 'apiKey'],
+  vendorZhipuApiKey: ['apis', 'llmVendors', 'zhipu', 'apiKey'],
+};
+
+function persistSecretInput(input) {
+  const path = SECRET_INPUT_PATHS[input?.id];
+  const value = String(input?.value || '').trim();
+  if (!path || !value) return;
+  const secrets = localUserSecrets();
+  setDeepValue(secrets, path, value);
+  localStorage.setItem(USER_SECRETS_KEY, JSON.stringify(secrets));
 }
 
 function mergeLocalSecrets(config) {
@@ -1911,9 +1945,16 @@ function configWithoutSecrets(config) {
 function persistUserConfig(config) {
   const full = normalizeConfigShape(JSON.parse(JSON.stringify(config || {})));
   const secrets = localUserSecrets();
+  const existingSecretKeys = new Set(secretPaths().map(pathKey));
   for (const path of secretPaths()) {
     const value = getDeepValue(full, path);
     if (typeof value === 'string' && value.trim()) setDeepValue(secrets, path, value.trim());
+  }
+  for (const [inputId, path] of Object.entries(SECRET_INPUT_PATHS)) {
+    if (existingSecretKeys.has(pathKey(path))) continue;
+    const input = document.getElementById(inputId);
+    const value = String(input?.value || '').trim();
+    if (value) setDeepValue(secrets, path, value);
   }
   localStorage.setItem(USER_SECRETS_KEY, JSON.stringify(secrets));
   localStorage.setItem(USER_CONFIG_KEY, JSON.stringify(configWithoutSecrets(full)));
@@ -1929,7 +1970,9 @@ function normalizeConfigShape(config) {
   cfg.apis.banana ||= {};
   cfg.apis.image2 ||= {};
   cfg.apis.seedream ||= {};
+  cfg.apis.i2iBanana ||= {};
   cfg.apis.i2i ||= {};
+  cfg.apis.i2iSeedream ||= {};
   cfg.apis.multimodal ||= {};
   cfg.apis.agent ||= {};
   cfg.apis.llmVendors ||= {};
@@ -1961,6 +2004,12 @@ function normalizeConfigShape(config) {
   cfg.apis.seedream.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
   cfg.apis.seedream.website ||= 'https://ark.cn-beijing.volces.com';
   cfg.apis.seedream.modelName ||= 'seedream-5-0-pro';
+  cfg.apis.i2iBanana.baseUrl ||= cfg.apis.banana.baseUrl || '';
+  cfg.apis.i2iBanana.website ||= cfg.apis.banana.website || '';
+  cfg.apis.i2iBanana.modelName ||= 'banana-edit';
+  cfg.apis.i2iSeedream.baseUrl ||= cfg.apis.seedream.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3';
+  cfg.apis.i2iSeedream.website ||= cfg.apis.seedream.website || 'https://ark.cn-beijing.volces.com';
+  cfg.apis.i2iSeedream.modelName ||= 'seedream-5-0-pro';
   cfg.models.video = [cfg.apis.ark.modelName, cfg.apis.kling.modelName, cfg.apis.happyhorse.modelName].filter(Boolean);
   cfg.apis.i2i.endpointType ||= 'openai-edits';
   cfg.apis.i2i.referenceField ||= 'image';
@@ -2471,14 +2520,14 @@ function normalizeNode(node) {
   if (['image', 'video'].includes(node.type) && node.imageRatio) {
     node.imageRatio = imageRatioForNode(node);
   }
-  if (node.type === 't2i' && !['banana', 'image2'].includes(node.model)) {
+  if (node.type === 't2i' && !['banana', 'image2', 'seedream'].includes(node.model)) {
     node.model = 'image2';
   }
-  if (node.type === 'i2i' && !['banana', 'image2'].includes(node.model)) {
+  if (node.type === 'i2i' && !['banana', 'image2', 'seedream'].includes(node.model)) {
     node.model = 'image2';
   }
   if (node.type === 'loop') {
-    if (!['banana', 'image2'].includes(node.model)) node.model = 'image2';
+    if (!['banana', 'image2', 'seedream'].includes(node.model)) node.model = 'image2';
     node.loopCount = Math.max(1, Math.min(16, Number(node.loopCount || 8)));
     node.aspect ||= '16:9';
     node.quality ||= '2k';
@@ -3064,11 +3113,9 @@ function imageParamPanelHTML(node) {
         ${referenceMentionMenuHTML(node)}
       ` : ''}
       <div class="image-param-row">
-        ${node.type === 'i2i'
-          ? '<div class="model-badge">DMXAPI 图生图通道<span>设置里配置模型</span></div>'
-          : `<select data-field="model">
-              ${['banana', 'image2'].map(v => `<option ${node.model === v ? 'selected' : ''}>${v}</option>`).join('')}
-            </select>`}
+        <select data-field="model">
+          ${['banana', 'image2', 'seedream'].map(v => `<option ${node.model === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
         <select data-field="aspect">
           ${['16:9', '9:16', '1:1', '4:3', '3:4'].map(v => `<option ${node.aspect === v ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
@@ -5158,7 +5205,7 @@ function linkManyToTarget(sourceIds, targetId) {
 }
 
 function imageModelForUtility(source) {
-  return source?.model && ['banana', 'image2'].includes(source.model) ? source.model : 'image2';
+  return source?.model && ['banana', 'image2', 'seedream'].includes(source.model) ? source.model : 'image2';
 }
 
 function sourceAndInheritedImageIds(source) {
@@ -6246,11 +6293,17 @@ function applyConfigToUI() {
   document.querySelector('#seedreamApiKey').value = cfg.apis.seedream.apiKey || '';
   document.querySelector('#seedreamWebsite').value = cfg.apis.seedream.website || 'https://ark.cn-beijing.volces.com/api/v3';
   document.querySelector('#seedreamModelName').value = cfg.apis.seedream.modelName || 'seedream-5-0-pro';
+  document.querySelector('#i2iBananaBaseUrl').value = cfg.apis.i2iBanana.baseUrl || '';
+  document.querySelector('#i2iBananaApiKey').value = cfg.apis.i2iBanana.apiKey || '';
+  document.querySelector('#i2iBananaModelName').value = cfg.apis.i2iBanana.modelName || 'banana-edit';
   document.querySelector('#i2iBaseUrl').value = cfg.apis.i2i.baseUrl || '';
   document.querySelector('#i2iApiKey').value = cfg.apis.i2i.apiKey || '';
   document.querySelector('#i2iWebsite').value = cfg.apis.i2i.website || 'https://www.dmxapi.cn';
   document.querySelector('#i2iModelName').value = cfg.apis.i2i.modelName || '';
   document.querySelector('#i2iEndpointType').value = cfg.apis.i2i.endpointType || 'custom-edits';
+  document.querySelector('#i2iSeedreamBaseUrl').value = cfg.apis.i2iSeedream.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3';
+  document.querySelector('#i2iSeedreamApiKey').value = cfg.apis.i2iSeedream.apiKey || '';
+  document.querySelector('#i2iSeedreamModelName').value = cfg.apis.i2iSeedream.modelName || 'seedream-5-0-pro';
   document.querySelector('#i2iReferenceField').value = cfg.apis.i2i.referenceField || 'image';
   document.querySelector('#i2iIdentityPrompt').value = cfg.apis.i2i.identityPrompt || '';
   const multiBaseUrl = document.querySelector('#multiBaseUrl');
@@ -6282,7 +6335,6 @@ function applyConfigToUI() {
   document.querySelector('#agentPromptModel').value = cfg.apis.agent.promptModel || 'deepseek-chat';
   if (els.agentModel) els.agentModel.value = cfg.defaults.agentProvider || 'zhipu';
   applyVendorSettingsToUI(cfg);
-  document.querySelector('#imageModels').value = (cfg.models.image || []).join(', ');
   updateVideoProviderUI();
 }
 
@@ -6402,11 +6454,19 @@ function collectSettingsFromUI() {
   cfg.apis.seedream.website = document.querySelector('#seedreamWebsite').value.trim() || 'https://ark.cn-beijing.volces.com/api/v3';
   cfg.apis.seedream.baseUrl = cfg.apis.seedream.website;
   cfg.apis.seedream.modelName = document.querySelector('#seedreamModelName').value.trim() || 'seedream-5-0-pro';
+  cfg.apis.i2iBanana.baseUrl = document.querySelector('#i2iBananaBaseUrl').value.trim();
+  cfg.apis.i2iBanana.apiKey = secretValue(['apis', 'i2iBanana', 'apiKey'], document.querySelector('#i2iBananaApiKey').value, cfg.apis.i2iBanana.apiKey);
+  cfg.apis.i2iBanana.website = cfg.apis.i2iBanana.baseUrl.replace(/\/v\d+\/?.*$/, '').replace(/\/$/, '');
+  cfg.apis.i2iBanana.modelName = document.querySelector('#i2iBananaModelName').value.trim() || 'banana-edit';
   cfg.apis.i2i.baseUrl = document.querySelector('#i2iBaseUrl').value.trim();
   cfg.apis.i2i.apiKey = secretValue(['apis', 'i2i', 'apiKey'], document.querySelector('#i2iApiKey').value, cfg.apis.i2i.apiKey);
   cfg.apis.i2i.website = document.querySelector('#i2iWebsite').value.trim() || 'https://www.dmxapi.cn';
   cfg.apis.i2i.modelName = document.querySelector('#i2iModelName').value.trim();
   cfg.apis.i2i.endpointType = document.querySelector('#i2iEndpointType').value || 'custom-edits';
+  cfg.apis.i2iSeedream.baseUrl = document.querySelector('#i2iSeedreamBaseUrl').value.trim() || 'https://ark.cn-beijing.volces.com/api/v3';
+  cfg.apis.i2iSeedream.apiKey = secretValue(['apis', 'i2iSeedream', 'apiKey'], document.querySelector('#i2iSeedreamApiKey').value, cfg.apis.i2iSeedream.apiKey);
+  cfg.apis.i2iSeedream.website = cfg.apis.i2iSeedream.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '') || 'https://ark.cn-beijing.volces.com';
+  cfg.apis.i2iSeedream.modelName = document.querySelector('#i2iSeedreamModelName').value.trim() || 'seedream-5-0-pro';
   cfg.apis.i2i.referenceField = 'image';
   cfg.apis.i2i.identityPrompt = document.querySelector('#i2iIdentityPrompt').value.trim();
   cfg.apis.multimodal.baseUrl = document.querySelector('#multiBaseUrl')?.value.trim() || cfg.apis.multimodal.baseUrl || 'https://www.dmxapi.cn/v1/responses';
@@ -6430,7 +6490,7 @@ function collectSettingsFromUI() {
   collectVendorSettingsFromUI(cfg);
   cfg.defaults.agentProvider = els.agentModel?.value || 'zhipu';
   cfg.models.video = [cfg.apis.ark.modelName, cfg.apis.kling.modelName, cfg.apis.happyhorse.modelName].filter(Boolean);
-  cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
+  cfg.models.image = ['banana', 'image2', 'seedream'];
   cfg.defaults.videoModel = cfg.apis.ark.modelName;
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';
   return cfg;
@@ -9025,11 +9085,18 @@ function bindEvents() {
   document.querySelector('#saveSettings').addEventListener('click', saveSettings);
   els.settings?.addEventListener('input', event => {
     if (!event.target.matches('input, textarea, select')) return;
+    if (event.target.matches('input[type="password"]')) persistSecretInput(event.target);
     autoSaveSettings();
   });
   els.settings?.addEventListener('change', event => {
     if (!event.target.matches('input, textarea, select')) return;
+    if (event.target.matches('input[type="password"]')) persistSecretInput(event.target);
     autoSaveSettings();
+  });
+  window.addEventListener('beforeunload', () => {
+    try {
+      if (!els.settings?.classList.contains('hidden')) persistUserConfig(collectSettingsFromUI());
+    } catch {}
   });
   document.querySelectorAll('input[name="videoProvider"]').forEach(input => {
     input.addEventListener('change', updateVideoProviderUI);

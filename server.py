@@ -80,6 +80,12 @@ DEFAULT_CONFIG = {
             "website": "https://ark.cn-beijing.volces.com",
             "modelName": "seedream-5-0-pro",
         },
+        "i2iBanana": {
+            "baseUrl": "",
+            "apiKey": "",
+            "website": "",
+            "modelName": "banana-edit",
+        },
         "i2i": {
             "baseUrl": "",
             "apiKey": "",
@@ -88,6 +94,12 @@ DEFAULT_CONFIG = {
             "endpointType": "openai-edits",
             "referenceField": "image",
             "identityPrompt": "Use the provided reference image as the strict identity and visual anchor. Preserve the original person or subject, face, age, hairstyle, body shape, clothing identity, and core visual features. Do not replace the referenced subject with a different person or object. Only change the scene, camera, lighting, pose, layout, or style requested by the user.",
+        },
+        "i2iSeedream": {
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "apiKey": "",
+            "website": "https://ark.cn-beijing.volces.com",
+            "modelName": "seedream-5-0-pro",
         },
         "multimodal": {
             "baseUrl": "https://www.dmxapi.cn/v1/responses",
@@ -187,7 +199,9 @@ def normalize_config(config: dict) -> None:
     apis.setdefault("banana", {})
     apis.setdefault("image2", {})
     apis.setdefault("seedream", {})
+    apis.setdefault("i2iBanana", {})
     apis.setdefault("i2i", {})
+    apis.setdefault("i2iSeedream", {})
     apis.setdefault("multimodal", {})
     apis.setdefault("agent", {})
     apis.setdefault("llmVendors", {})
@@ -228,11 +242,19 @@ def normalize_config(config: dict) -> None:
     for model_name in ("banana", "image2", "seedream"):
         if model_name not in models["image"]:
             models["image"].append(model_name)
+    i2i_banana = apis["i2iBanana"]
+    i2i_banana.setdefault("baseUrl", apis["banana"].get("baseUrl") or "")
+    i2i_banana.setdefault("website", apis["banana"].get("website") or "")
+    i2i_banana.setdefault("modelName", "banana-edit")
     i2i = apis["i2i"]
     i2i.setdefault("endpointType", "openai-edits")
     i2i.setdefault("referenceField", "image")
     i2i.setdefault("modelName", "")
     i2i.setdefault("identityPrompt", DEFAULT_CONFIG["apis"]["i2i"]["identityPrompt"])
+    i2i_seedream = apis["i2iSeedream"]
+    i2i_seedream.setdefault("baseUrl", seedream.get("baseUrl") or "https://ark.cn-beijing.volces.com/api/v3")
+    i2i_seedream.setdefault("website", seedream.get("website") or "https://ark.cn-beijing.volces.com")
+    i2i_seedream.setdefault("modelName", "seedream-5-0-pro")
     multimodal = apis["multimodal"]
     multimodal.setdefault("baseUrl", "https://www.dmxapi.cn/v1/responses")
     multimodal.setdefault("website", "https://www.dmxapi.cn")
@@ -699,8 +721,24 @@ def image_edit_reference_files(refs: list[dict]) -> list[tuple[str, str, bytes]]
     return ref_files
 
 
+def image_edit_api_for_model(config: dict, model: str) -> dict:
+    apis = config.get("apis", {})
+    model_key = (model or "image2").strip().lower()
+    candidates = {
+        "banana": ["i2iBanana", "i2i"],
+        "seedream": ["i2iSeedream", "i2i"],
+        "image2": ["i2i"],
+        "i2i": ["i2i"],
+    }.get(model_key, ["i2i"])
+    for key in candidates:
+        api = apis.get(key, {})
+        if (api.get("apiKey") or "").strip() and (api.get("modelName") or "").strip():
+            return api
+    return apis.get(candidates[0], {}) if candidates else apis.get("i2i", {})
+
+
 def generate_image_edit(config: dict, body: dict) -> dict:
-    api = config.get("apis", {}).get("i2i", {})
+    api = image_edit_api_for_model(config, body.get("model") or "image2")
     api_key = (api.get("apiKey") or "").strip()
     model_name = (api.get("modelName") or "").strip()
     if not api_key:

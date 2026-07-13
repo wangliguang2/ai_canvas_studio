@@ -233,6 +233,10 @@
             <h3 class="settings-provider-title">
               <label>文生图模型</label>
             </h3>
+            <div class="settings-model-section">
+              <div class="settings-model-heading">谷歌 Banana</div>
+              <div class="settings-model-subtitle">Google 图像生成接口</div>
+            </div>
             <label>Google Banana API Key</label>
             <div class="secret-row">
               <input id="bananaApiKey" type="password">
@@ -242,6 +246,10 @@
             <input id="bananaWebsite">
             <label>Google Banana 模型 ID</label>
             <input id="bananaModelName" placeholder="banana">
+            <div class="settings-model-section">
+              <div class="settings-model-heading">ChatGPT / Image2</div>
+              <div class="settings-model-subtitle">GPT Image / DMXAPI 兼容文生图</div>
+            </div>
             <label>Image2 API Key</label>
             <div class="secret-row">
               <input id="image2ApiKey" type="password">
@@ -251,6 +259,10 @@
             <input id="image2Website">
             <label>Image2 实际模型 ID</label>
             <input id="image2ModelName" placeholder="gpt-image-2">
+            <div class="settings-model-section">
+              <div class="settings-model-heading">即梦 Seedream</div>
+              <div class="settings-model-subtitle">字节即梦 Seedream 5.0 Pro</div>
+            </div>
             <label>字节即梦 Seedream API Key</label>
             <div class="secret-row">
               <input id="seedreamApiKey" type="password">
@@ -260,13 +272,28 @@
             <input id="seedreamWebsite" placeholder="https://ark.cn-beijing.volces.com/api/v3">
             <label>Seedream 模型 ID</label>
             <input id="seedreamModelName" placeholder="seedream-5-0-pro">
-            <label>生图模型名</label>
-            <input id="imageModels">
           </div>
           <div class="settings-i2i" data-settings-panel="i2i">
             <h3 class="settings-provider-title">
               <label>图生图模型</label>
             </h3>
+            <div class="settings-model-section">
+              <div class="settings-model-heading">谷歌 Banana</div>
+              <div class="settings-model-subtitle">Google 图像编辑 / 图生图接口</div>
+            </div>
+            <label>Google Banana 图生图 API 地址</label>
+            <input id="i2iBananaBaseUrl" placeholder="https://example.com/v1/images/edits">
+            <label>Google Banana 图生图 API Key</label>
+            <div class="secret-row">
+              <input id="i2iBananaApiKey" type="password">
+              <button type="button" data-toggle-secret="#i2iBananaApiKey">显示</button>
+            </div>
+            <label>Google Banana 图生图模型名</label>
+            <input id="i2iBananaModelName" placeholder="banana-edit">
+            <div class="settings-model-section">
+              <div class="settings-model-heading">ChatGPT / Image2</div>
+              <div class="settings-model-subtitle">独立图生图编辑接口，保留角色与参考图</div>
+            </div>
             <p class="settings-note settings-note-right">留空后自行填写</p>
             <label>图生图 API 地址</label>
             <input id="i2iBaseUrl" placeholder="https://www.dmxapi.cn/v1/images/edits">
@@ -281,6 +308,19 @@
             <select id="i2iEndpointType">
               <option value="custom-edits">Multipart 完整参数</option>
             </select>
+            <div class="settings-model-section">
+              <div class="settings-model-heading">即梦 Seedream</div>
+              <div class="settings-model-subtitle">字节即梦 Seedream 图像编辑接口</div>
+            </div>
+            <label>即梦 Seedream 图生图 API 地址</label>
+            <input id="i2iSeedreamBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
+            <label>即梦 Seedream 图生图 API Key</label>
+            <div class="secret-row">
+              <input id="i2iSeedreamApiKey" type="password">
+              <button type="button" data-toggle-secret="#i2iSeedreamApiKey">显示</button>
+            </div>
+            <label>即梦 Seedream 图生图模型名</label>
+            <input id="i2iSeedreamModelName" placeholder="seedream-5-0-pro">
             <input id="i2iWebsite" class="hidden-field" type="hidden">
             <input id="i2iReferenceField" class="hidden-field" type="hidden" value="image">
             <textarea id="i2iIdentityPrompt" class="hidden-field" rows="1"></textarea>
