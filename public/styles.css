@@ -1931,6 +1931,13 @@ body[data-theme="purple"] .stage-wrap {
   border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 
+.agent-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
 .agent-head-actions {
   display: flex;
   gap: 6px;
@@ -2355,7 +2362,7 @@ body[data-theme="purple"] .stage-wrap {
   max-height: 28vh;
   resize: vertical;
   line-height: 1.5;
-  padding: 10px 54px 40px 10px;
+  padding: 10px;
   font-size: 13px;
 }
 
@@ -2363,7 +2370,7 @@ body[data-theme="purple"] .stage-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .agent-model-inline {
@@ -2382,6 +2389,7 @@ body[data-theme="purple"] .stage-wrap {
 
 .agent-skill-toggle {
   width: auto;
+  min-width: 96px;
   min-height: 34px;
   padding: 0 11px;
   border-radius: 999px;
@@ -2389,6 +2397,7 @@ body[data-theme="purple"] .stage-wrap {
   color: #ccff00;
   font-size: 12px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .agent-skill-menu {
@@ -2402,6 +2411,13 @@ body[data-theme="purple"] .stage-wrap {
   border-radius: 12px;
   background: rgba(14, 17, 22, .98);
   box-shadow: 0 18px 50px rgba(0, 0, 0, .46);
+}
+
+.agent-head .agent-skill-menu {
+  left: 0;
+  right: auto;
+  top: calc(100% + 8px);
+  bottom: auto;
 }
 
 .agent-skill-menu.hidden {
@@ -2535,12 +2551,11 @@ body[data-theme="purple"] .stage-wrap {
 }
 
 .agent-send {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
+  position: static;
   z-index: 2;
-  width: 40px;
-  min-height: 40px;
+  flex: 0 0 38px;
+  width: 38px;
+  min-height: 38px;
   padding: 0;
   border-radius: 50%;
   background: #d9dde4;

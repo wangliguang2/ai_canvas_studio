@@ -656,6 +656,7 @@ async function importCustomSkillFiles(files = []) {
     insertIntoAgentInput(agentSkillPrompt(imported[0].id));
     saveAgentSession();
   }
+  els.agentSkillMenu?.classList.add('hidden');
   setStatus(`已加载 ${imported.length} 个自定义 Skill`);
 }
 
@@ -995,7 +996,7 @@ async function callAgentModelStream(prompt, onDelta) {
 }
 
 function shouldSendSegmentsToCanvas(prompt = '', text = '') {
-  if (!/\[Segment\d*\]/i.test(text)) return false;
+  if (!/\[Segment\s*\d*\]/i.test(text)) return false;
   return /(放到|放进|加入|添加到|生成到|写到|输出到|放在).{0,12}画布|画布(中|里|上)/.test(prompt);
 }
 
@@ -1007,9 +1008,7 @@ function parseAgentSegments(text = '') {
   return matches.map((match, index) => {
     const start = (match.index || 0) + match[0].length;
     const end = index + 1 < matches.length ? matches[index + 1].index || source.length : source.length;
-    const rawLabel = String(match[1] || '').replace(/\s+/g, '');
-    const label = index === 0 && /^Segment$/i.test(rawLabel) ? 'Segment' : rawLabel;
-    const title = `[${label}]`;
+    const title = `Segment${index + 1}`;
     const inlineTitle = (match[2] || '').trim();
     const body = source.slice(start, end).trim();
     const content = [inlineTitle, body].filter(Boolean).join('\n\n').trim();
@@ -1017,20 +1016,60 @@ function parseAgentSegments(text = '') {
   }).filter(item => item.text.trim());
 }
 
+function textVisualWeight(line = '') {
+  return [...String(line || '')].reduce((sum, char) => {
+    if (/[\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef]/.test(char)) return sum + 1;
+    if (/\s/.test(char)) return sum + 0.35;
+    return sum + 0.56;
+  }, 0);
+}
+
+function autoTextNodeHeight(text = '', width = 420, type = 'text') {
+  const raw = String(text || '').trim();
+  const baseMin = type === 'prompt' ? 150 : 168;
+  if (!raw) return baseMin;
+  const usableWidth = Math.max(180, Number(width || 420) - 28);
+  const charsPerLine = Math.max(18, Math.floor(usableWidth / 11.2));
+  const visualLines = raw.split('\n').reduce((sum, line) => {
+    const weight = textVisualWeight(line);
+    return sum + Math.max(1, Math.ceil(weight / charsPerLine));
+  }, 0);
+  const bodyPadding = 58;
+  const height = bodyPadding + visualLines * 18;
+  return Math.max(baseMin, Math.min(680, Math.ceil(height)));
+}
+
 function addAgentSegmentsToCanvas(prompt = '', text = '') {
   if (!shouldSendSegmentsToCanvas(prompt, text)) return 0;
   const segments = parseAgentSegments(text);
   if (!segments.length) return 0;
   const anchor = agentCanvasAnchor();
-  const gap = 28;
-  const width = 420;
-  const height = 250;
-  segments.forEach((segment, index) => {
-    addNode('text', anchor.x + index * (width + gap), anchor.y + index * 24, {
+  const gapX = 32;
+  const gapY = 34;
+  const width = 430;
+  const columns = Math.min(4, Math.max(1, segments.length));
+  const placed = segments.map(segment => ({
+    ...segment,
+    w: width,
+    h: autoTextNodeHeight(segment.text, width, 'text'),
+  }));
+  const rowHeights = [];
+  placed.forEach((segment, index) => {
+    const row = Math.floor(index / columns);
+    rowHeights[row] = Math.max(rowHeights[row] || 0, segment.h);
+  });
+  const rowTops = rowHeights.reduce((tops, height, index) => {
+    tops[index] = index === 0 ? 0 : tops[index - 1] + rowHeights[index - 1] + gapY;
+    return tops;
+  }, []);
+  placed.forEach((segment, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    addNode('text', anchor.x + col * (width + gapX), anchor.y + rowTops[row], {
       title: segment.title,
       text: segment.text,
-      w: width,
-      h: height,
+      w: segment.w,
+      h: segment.h,
     });
   });
   setStatus(`已把 ${segments.length} 段 Segment 放到画布`);
@@ -2022,6 +2061,9 @@ function addNode(type, x, y, data = {}) {
     node.imageRatio = imageRatioForNode(node);
     if (!data.w) node.w = Math.min(420, Math.max(220, Math.round(180 * node.imageRatio)));
     if (!data.h) node.h = imageNodeHeight(node);
+  }
+  if (['text', 'prompt', 'script'].includes(node.type) && !data.h) {
+    node.h = autoTextNodeHeight(node.text, node.w, node.type);
   }
   state.nodes.push(node);
   state.selectedId = node.id;
@@ -6967,6 +7009,14 @@ function bindEvents() {
       node[field] = Number(event.target.value);
     } else {
       node[field] = event.target.value;
+    }
+    if (field === 'text' && ['text', 'prompt', 'script'].includes(node.type)) {
+      const nextH = autoTextNodeHeight(node.text, node.w, node.type);
+      if (nextH > (node.h || 0)) {
+        node.h = nextH;
+        nodeEl.style.height = `${node.h}px`;
+        scheduleRenderLinks();
+      }
     }
     if (field === 'quality') node.qualityMigrated = true;
       if (els.prompt && (node.type === 'prompt' || node.type === 't2v' || node.type === 'i2v')) {
