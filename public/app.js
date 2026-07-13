@@ -1360,6 +1360,71 @@ function captureFrameFromVideoNode(nodeId) {
   }
 }
 
+function extractAspectFromText(text = '') {
+  const match = String(text || '').match(/(\d{1,2})\s*[:：]\s*(\d{1,2})/);
+  return match ? `${match[1]}:${match[2]}` : '16:9';
+}
+
+function extractQualityFromText(text = '') {
+  const match = String(text || '').match(/\b(1k|2k|4k|8k)\b/i);
+  return match ? match[1].toLowerCase() : '2k';
+}
+
+function parseAgentDirectImageCommand(command = '') {
+  const raw = String(command || '').trim();
+  if (!raw) return null;
+  const wantsCanvasText = /(文本节点|提示词节点|放入画布|放到画布|放在画布|画布中|画布里)/i.test(raw);
+  const wantsImage2 = /(image\s*2|image2|gpt-image-2)/i.test(raw);
+  const wantsImage = /(生图|文生图|生成.{0,8}(图片|图像|照片)|出图|画图)/i.test(raw);
+  if (!(wantsCanvasText && wantsImage2 && wantsImage)) return null;
+
+  const aspect = extractAspectFromText(raw);
+  const quality = extractQualityFromText(raw);
+  const colonTail = raw.match(/[：:]\s*([^：:\n]{4,})\s*$/);
+  let imagePrompt = colonTail && !/(image\s*2|文本节点|放入画布|放到画布|画布|生成|生图)/i.test(colonTail[1])
+    ? colonTail[1].trim()
+    : raw.split(/(?:，|,|\n)?\s*(?:自动把|并把|再把|然后|并且|利用\s*image\s*2|使用\s*image\s*2|用\s*image\s*2|拿\s*image\s*2|生成\s*\d{1,2}\s*[:：]\s*\d{1,2}|生成.{0,8}(?:图片|图像|照片))/i)[0].trim();
+
+  imagePrompt = imagePrompt
+    .replace(/^(请|帮我|给我|麻烦你)\s*/, '')
+    .replace(/^(把这个提示词|把我这个提示词|这个提示词)\s*/, '')
+    .trim();
+  if (imagePrompt.length < 3 || /(文本节点|放入画布|image\s*2)/i.test(imagePrompt)) return null;
+  return { prompt: imagePrompt, aspect, quality };
+}
+
+function executeAgentDirectImageCommand(command = '') {
+  const parsed = parseAgentDirectImageCommand(command);
+  if (!parsed) return false;
+  activateCanvasMode('t2i');
+  const anchor = agentCanvasAnchor();
+  const textWidth = 360;
+  const imageWidth = 520;
+  const textNode = addNode('text', anchor.x, anchor.y, {
+    text: parsed.prompt,
+    w: textWidth,
+    h: autoTextNodeHeight(parsed.prompt, textWidth, 'text'),
+  });
+  const imageNode = addNode('t2i', anchor.x + textWidth + 80, anchor.y, {
+    title: `image2 ${parsed.aspect}`,
+    model: 'image2',
+    aspect: parsed.aspect,
+    quality: parsed.quality,
+    imageCount: 1,
+    w: imageWidth,
+    keepTitle: true,
+  });
+  state.links.push({ id: uid('link'), from: textNode.id, to: imageNode.id });
+  state.selectedId = imageNode.id;
+  state.activeParamNodeId = imageNode.id;
+  render();
+  saveCanvas();
+  appendAgentLog('已执行画布命令', `已创建文本节点，并连接 image2 文生图节点。\n提示词：${parsed.prompt}\n比例：${parsed.aspect}，清晰度：${parsed.quality}`, { role: 'assistant' });
+  setStatus(`已用 image2 创建 ${parsed.aspect} 生图任务`);
+  window.setTimeout(() => generateImageFromNode(imageNode.id), 120);
+  return true;
+}
+
 async function executeAgentCommand() {
   const prompt = (els.agentInput?.value || '').trim();
   if (!prompt) {
@@ -1369,6 +1434,7 @@ async function executeAgentCommand() {
   const sendButton = document.querySelector('.agent-send');
   appendAgentLog('', prompt, { role: 'user' });
   recordAgentHistory('询问智能体', prompt.slice(0, 42));
+  if (executeAgentDirectImageCommand(prompt)) return;
   if (agentApiConfigured()) {
     try {
       sendButton?.classList.add('is-running');
