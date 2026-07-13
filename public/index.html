@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Canvas Studio</title>
-  <link rel="stylesheet" href="/styles.css?v=202607112">
+  <link rel="stylesheet" href="/styles.css?v=202607133">
 </head>
 <body>
   <div id="app">
@@ -84,7 +84,7 @@
         </div>
         <div class="status" id="status">就绪</div>
         <div class="volc-billing">
-          <a class="volc-recharge" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎官方账户页查看生图余额">生图余额</a>
+          <a class="volc-recharge" href="https://www.dmxapi.cn/" target="_blank" rel="noreferrer" title="打开 DMXAPI 官网查看生图余额">生图余额</a>
           <a class="volc-balance" href="https://console.volcengine.com/finance/account-overview?_vtm_=a441938.b105393.0_0.0_0.0.160_7656765337685444134" target="_blank" rel="noreferrer" title="打开火山引擎账户总览查看真实可用余额">
             <span>火山余额</span>
             <b>¥ --</b>
@@ -179,7 +179,7 @@
           <button id="closeSettings">关闭</button>
         </div>
         <div class="settings-tabs">
-          <button type="button" class="active" data-settings-tab="ark">火山视频</button>
+          <button type="button" class="active" data-settings-tab="ark">生成视频</button>
           <button type="button" data-settings-tab="image">文生图</button>
           <button type="button" data-settings-tab="i2i">图生图</button>
           <button type="button" data-settings-tab="vendors">大模型厂家</button>
@@ -187,7 +187,7 @@
         <div class="settings-grid">
           <div class="settings-video-ark active" data-settings-panel="ark">
             <h3 class="settings-provider-title">
-              <label><input type="radio" name="videoProvider" id="providerArk" value="ark" checked> 火山算力</label>
+              <label><input type="radio" name="videoProvider" id="providerArk" value="ark" checked> 即梦</label>
             </h3>
             <label>ARK_BASE_URL <span class="required">*</span></label>
             <input id="arkBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3">
@@ -198,18 +198,50 @@
             </div>
             <label>ARK_MODEL <span class="required">*</span></label>
             <input id="arkModel" placeholder="doubao-seedance-2-0-260">
+            <div class="vendor-settings-grid video-vendor-grid">
+              <section class="vendor-card">
+                <h4>可灵</h4>
+                <label>API 地址</label>
+                <input id="klingBaseUrl" placeholder="https://api.klingai.com/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="klingApiKey" type="password">
+                  <button type="button" data-toggle-secret="#klingApiKey">显示</button>
+                </div>
+                <label>视频模型</label>
+                <input id="klingModel" placeholder="kling-v1-6">
+                <label>官网 / 备注</label>
+                <input id="klingWebsite" placeholder="https://app.klingai.com">
+              </section>
+              <section class="vendor-card">
+                <h4>HappyHorse</h4>
+                <label>API 地址</label>
+                <input id="happyhorseBaseUrl" placeholder="https://api.happyhorse.com/v1">
+                <label>API Key</label>
+                <div class="secret-row">
+                  <input id="happyhorseApiKey" type="password">
+                  <button type="button" data-toggle-secret="#happyhorseApiKey">显示</button>
+                </div>
+                <label>视频模型</label>
+                <input id="happyhorseModel" placeholder="happyhorse-video">
+                <label>官网 / 备注</label>
+                <input id="happyhorseWebsite" placeholder="https://happyhorse.com">
+              </section>
+            </div>
           </div>
           <div class="settings-image-standard" data-settings-panel="image">
             <h3 class="settings-provider-title">
               <label>文生图模型</label>
             </h3>
-            <label>Banana API Key</label>
+            <label>Google Banana API Key</label>
             <div class="secret-row">
               <input id="bananaApiKey" type="password">
               <button type="button" data-toggle-secret="#bananaApiKey">显示</button>
             </div>
-            <label>Banana 网站</label>
+            <label>Google Banana 网站</label>
             <input id="bananaWebsite">
+            <label>Google Banana 模型 ID</label>
+            <input id="bananaModelName" placeholder="banana">
             <label>Image2 API Key</label>
             <div class="secret-row">
               <input id="image2ApiKey" type="password">
@@ -219,6 +251,15 @@
             <input id="image2Website">
             <label>Image2 实际模型 ID</label>
             <input id="image2ModelName" placeholder="gpt-image-2">
+            <label>字节即梦 Seedream API Key</label>
+            <div class="secret-row">
+              <input id="seedreamApiKey" type="password">
+              <button type="button" data-toggle-secret="#seedreamApiKey">显示</button>
+            </div>
+            <label>字节即梦 Seedream 网站</label>
+            <input id="seedreamWebsite" placeholder="https://ark.cn-beijing.volces.com/api/v3">
+            <label>Seedream 模型 ID</label>
+            <input id="seedreamModelName" placeholder="seedream-5-0-pro">
             <label>生图模型名</label>
             <input id="imageModels">
           </div>
@@ -616,8 +657,8 @@
       }
     }
   </script>
-  <script src="/app.js?v=202607112"></script>
-  <script type="module" src="/director3d.js?v=202607112"></script>
+  <script src="/app.js?v=202607133"></script>
+  <script type="module" src="/director3d.js?v=202607133"></script>
 </body>
 </html>
 

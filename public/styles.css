@@ -6107,6 +6107,10 @@ h3 {
   font-weight: 900;
 }
 
+.video-vendor-grid {
+  margin-top: 14px;
+}
+
 .settings-image-standard,
 .settings-i2i,
 .settings-multimodal,

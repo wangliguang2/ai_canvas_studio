@@ -1080,6 +1080,7 @@ const AGENT_IMAGE_CATEGORY_ALIASES = [
   { key: 'character', label: '角色', pattern: /^(角色|人物|主角|配角|character|characters|role|roles)$/i },
   { key: 'scene', label: '场景', pattern: /^(场景|环境|空间|地点|scene|scenes|environment|location)$/i },
   { key: 'prop', label: '道具', pattern: /^(道具|物品|产品|服化道|prop|props|object|objects|item|items)$/i },
+  { key: 'asset', label: '资产', pattern: /^(资产|素材|资产图|素材图|asset|assets)$/i },
 ];
 
 function agentImageCategory(raw = '') {
@@ -1089,6 +1090,7 @@ function agentImageCategory(raw = '') {
   if (/^(角色|人物|主角|配角|角色设定|人物设定|character|characters|role|roles)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[0];
   if (/^(场景|环境|空间|地点|场景设定|场景设计|scene|scenes|environment|location)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[1];
   if (/^(道具|物品|产品|服化道|道具清单|道具设定|prop|props|object|objects|item|items)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[2];
+  if (/^(资产|素材|资产图|素材图|asset|assets)/i.test(clean)) return AGENT_IMAGE_CATEGORY_ALIASES[3];
   return null;
 }
 
@@ -1096,8 +1098,15 @@ function shouldCreateImage2Tasks(prompt = '', text = '') {
   const ask = String(prompt || '');
   const output = String(text || '');
   const wantsImage = /(image\s*2|image2|gpt-image-2|生图|生成图片|生成图像|文生图|画图|出图)/i.test(ask);
-  const hasCategory = /(角色|人物|场景|环境|道具|物品|产品|character|scene|prop)/i.test(output);
-  return wantsImage && hasCategory;
+  const wantsAssetSet = wantsAgentAssetWorkflow(ask);
+  const hasTaskShape = /(提示词|生图提示词|资产图|素材图|角色|人物|场景|环境|道具|物品|产品|character|scene|prop|asset|prompt)/i.test(output);
+  return (wantsImage || wantsAssetSet) && hasTaskShape;
+}
+
+function wantsAgentAssetWorkflow(prompt = '') {
+  const ask = String(prompt || '');
+  return /(资产图|素材图|资产|素材|一套|成套|批量|依次|逐个|链接生图节点|连接生图节点|文生图节点)/i.test(ask)
+    && /(画布|生图|文生图|image\s*2|image2|图片|图像|照片|出图|节点)/i.test(ask);
 }
 
 function stripPromptPrefix(value = '') {
@@ -1117,6 +1126,116 @@ function cleanImageTaskName(value = '', fallback = '未命名') {
 
 function isPromptLabel(value = '') {
   return /^(提示词|生图提示词|画面提示词|prompt)$/i.test(String(value || '').trim());
+}
+
+function inferAgentImageCategoryFromName(value = '') {
+  const clean = String(value || '').trim();
+  return agentImageCategory(clean)
+    || (/角色|人物|男生|女生|老人|孩子|主角|配角|character|role/i.test(clean) ? AGENT_IMAGE_CATEGORY_ALIASES[0] : null)
+    || (/场景|环境|宿舍|房间|街道|城市|空间|地点|scene|environment|location/i.test(clean) ? AGENT_IMAGE_CATEGORY_ALIASES[1] : null)
+    || (/道具|物品|产品|服装|服饰|车辆|工具|prop|object|item|product/i.test(clean) ? AGENT_IMAGE_CATEGORY_ALIASES[2] : null)
+    || AGENT_IMAGE_CATEGORY_ALIASES[3];
+}
+
+function isIgnoredImageTaskLabel(value = '') {
+  return /^(正向提示词|负向提示词|全局风格|统一风格|画面要求|质量要求|色彩|光影|构图|镜头|运镜|动作|音效|声音|备注|说明|Asset Definitions|Director|Prompt)$/i
+    .test(String(value || '').replace(/[\[\]【】#*]/g, '').trim());
+}
+
+function extractAgentPositivePrompt(text = '') {
+  const source = String(text || '').replace(/\r\n/g, '\n');
+  const chinese = source.match(/(?:中文|正向提示词|正向|prompt)\s*(?:\*\*)?\s*[：:]\s*([\s\S]{10,}?)(?=\n\s*(?:\*\*|>|[-*•]|\d+[.)、）])?\s*(?:英文|反向提示词|反向|节点|步骤|画布|$))/i);
+  if (chinese) {
+    return stripPromptPrefix(chinese[1])
+      .replace(/^>\s*/gm, '')
+      .replace(/\*\*/g, '')
+      .trim()
+      .split('\n')
+      .filter(line => !/^(英文|反向|节点|步骤)/i.test(line.trim()))
+      .join('\n')
+      .trim();
+  }
+  const quote = source.match(/>\s*(?:\*\*中文\*\*[：:])?\s*([^\n]{16,})/);
+  return quote ? stripPromptPrefix(quote[1]).replace(/\*\*/g, '').trim() : '';
+}
+
+function uniqueAgentAssetSeeds(items = []) {
+  const seen = new Set();
+  return items
+    .map(item => ({
+      name: cleanImageTaskName(item.name, '资产'),
+      category: item.category || inferAgentImageCategoryFromName(item.name),
+    }))
+    .filter(item => {
+      const key = `${item.category.key}:${item.name}`;
+      if (!item.name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function parseAgentAssetSeeds(prompt = '', text = '') {
+  const source = `${text || ''}\n${prompt || ''}`.replace(/\r\n/g, '\n');
+  const seeds = [];
+  source.split('\n').forEach(line => {
+    const hit = line.match(/^\s*(?:[-*•]|\d+[.)、）])?\s*(?:\*\*)?(主体|角色|人物|场景|环境|道具|物品|产品)\s*\d*\s*(?:\*\*)?\s*[：:]\s*([^（(，,。；;\n]{1,28})/i);
+    if (!hit) return;
+    seeds.push({ name: hit[2], category: inferAgentImageCategoryFromName(`${hit[1]} ${hit[2]}`) });
+  });
+  if (!seeds.length) {
+    const keywordMap = [
+      ['美女', '年轻女性', '女生', '女孩', '男生', '男孩', '老人', '老年男性', '老年女性', '小狗', '狗', '猫', '孩子', '学生'],
+      ['宿舍', '公园', '办公室', '教室', '街道', '客厅', '卧室', '厨房', '校园', '工厂', '商场'],
+      ['书', '书本', '手机', '电脑', '背包', '眼镜', '汽车', '桌子', '椅子'],
+    ];
+    keywordMap.forEach((group, groupIndex) => {
+      group.forEach(word => {
+        const pattern = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        if (pattern.test(source)) {
+          seeds.push({
+            name: word,
+            category: groupIndex === 0 ? AGENT_IMAGE_CATEGORY_ALIASES[0] : groupIndex === 1 ? AGENT_IMAGE_CATEGORY_ALIASES[1] : AGENT_IMAGE_CATEGORY_ALIASES[2],
+          });
+        }
+      });
+    });
+  }
+  return uniqueAgentAssetSeeds(seeds).slice(0, 12);
+}
+
+function promptForAgentAssetSeed(seed, context = '') {
+  const base = context || '电影级写实摄影，真实材质，清晰主体，干净画面，高级光影，适合后续作为图生图或视频生成参考资产';
+  if (seed.category.key === 'character') {
+    return `${seed.name} 单独角色资产图，保持主体完整清晰，正面或轻微三分之四角度，面部特征明确，服装细节完整，干净背景，16:9 构图；参考整体剧情氛围：${base}`;
+  }
+  if (seed.category.key === 'scene') {
+    return `${seed.name} 场景资产图，突出空间布局、光线方向、环境细节和真实材质，尽量无杂乱遮挡，16:9 横屏构图；参考整体剧情氛围：${base}`;
+  }
+  if (seed.category.key === 'prop') {
+    return `${seed.name} 道具资产图，单独主体展示，轮廓清晰，材质纹理真实，干净背景，适合作为后续参考图，16:9 构图；参考整体剧情氛围：${base}`;
+  }
+  return `${seed.name} 资产图，主体清晰，真实摄影质感，干净构图，16:9 横屏；参考整体剧情氛围：${base}`;
+}
+
+function parseFallbackAgentAssetImageTasks(prompt = '', text = '') {
+  if (!wantsAgentAssetWorkflow(prompt)) return [];
+  const context = extractAgentPositivePrompt(text) || String(prompt || '').replace(/@[\w\u4e00-\u9fa5.\-]+/g, '').trim();
+  const seeds = parseAgentAssetSeeds(prompt, text);
+  if (seeds.length) {
+    return seeds.map(seed => ({
+      category: seed.category,
+      name: seed.name,
+      prompt: promptForAgentAssetSeed(seed, context),
+    }));
+  }
+  if (context.length > 8) {
+    return [{
+      category: AGENT_IMAGE_CATEGORY_ALIASES[3],
+      name: '整体资产图',
+      prompt: `${context}\n\n生成一张可作为后续图生图/视频生成参考的整体资产图，16:9 横屏，image2，真实材质，主体明确。`,
+    }];
+  }
+  return [];
 }
 
 function parseAgentImageEntries(block = '', category) {
@@ -1226,12 +1345,73 @@ function parseLooseAgentImageTasks(text = '') {
   return tasks;
 }
 
+function parseGenericAgentAssetImageTasks(text = '') {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const tasks = [];
+  let current = null;
+  const flush = () => {
+    if (!current) return;
+    const promptText = stripPromptPrefix(current.parts.join('\n').trim());
+    if (promptText && promptText.length > 8) {
+      tasks.push({
+        category: current.category || inferAgentImageCategoryFromName(current.name),
+        name: cleanImageTaskName(current.name, `资产${tasks.length + 1}`),
+        prompt: promptText,
+      });
+    }
+    current = null;
+  };
+  const startPattern = /^\s*(?:[-*•]|\d+[.)、）])?\s*(?:\*\*)?(?:\[(资产|素材|Asset|Assets|Image|Prompt)\s*([^\]]*)\]|([^：:\n]{1,42}?(?:资产图|素材图|角色图|人物图|场景图|环境图|道具图|物品图|产品图|形象图|设定图|参考图|角色|人物|场景|环境|道具|物品|产品|资产|素材)))(?:\*\*)?\s*[：:]\s*(.+)$/i;
+  const headingPattern = /^\s*(?:#{1,6}\s*)?(?:\*\*)?([^：:\n]{1,42}?(?:资产图|素材图|角色图|人物图|场景图|环境图|道具图|物品图|产品图|形象图|设定图|参考图|角色|人物|场景|环境|道具|物品|产品|资产|素材))(?:\*\*)?\s*$/i;
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (current) current.parts.push('');
+      return;
+    }
+    const start = trimmed.match(startPattern);
+    if (start) {
+      const label = cleanImageTaskName(start[2] || start[3] || start[1], `资产${tasks.length + 1}`);
+      if (isIgnoredImageTaskLabel(label)) {
+        if (current) current.parts.push(line);
+        return;
+      }
+      flush();
+      current = {
+        name: label,
+        category: inferAgentImageCategoryFromName(`${start[1] || ''} ${label}`),
+        parts: [start[4]],
+      };
+      return;
+    }
+    const promptLine = trimmed.match(/^\s*(提示词|生图提示词|画面提示词|prompt)\s*[：:]\s*(.+)$/i);
+    if (promptLine && current) {
+      current.parts.push(promptLine[2]);
+      return;
+    }
+    const heading = trimmed.match(headingPattern);
+    if (heading && !isIgnoredImageTaskLabel(heading[1])) {
+      flush();
+      current = {
+        name: cleanImageTaskName(heading[1], `资产${tasks.length + 1}`),
+        category: inferAgentImageCategoryFromName(heading[1]),
+        parts: [],
+      };
+      return;
+    }
+    if (current) current.parts.push(line);
+  });
+  flush();
+  return tasks;
+}
+
 function parseAgentImageTasks(text = '') {
   const source = String(text || '').replace(/\r\n/g, '\n');
-  const headerRegex = /^\s*(?:#{1,6}\s*)?(?:\[(角色|人物|场景|环境|道具|物品|产品|character|characters|scene|scenes|prop|props|object|objects)\]|(角色|人物|场景|环境|道具|物品|产品|character|characters|scene|scenes|prop|props|object|objects))\s*[：:]?\s*$/gim;
+  const headerRegex = /^\s*(?:#{1,6}\s*)?(?:\[(角色|人物|场景|环境|道具|物品|产品|资产|素材|character|characters|scene|scenes|prop|props|object|objects|asset|assets)\]|(角色|人物|场景|环境|道具|物品|产品|资产|素材|character|characters|scene|scenes|prop|props|object|objects|asset|assets))\s*[：:]?\s*$/gim;
   const matches = [...source.matchAll(headerRegex)];
   const tasks = [];
   tasks.push(...parseLooseAgentImageTasks(source));
+  tasks.push(...parseGenericAgentAssetImageTasks(source));
   if (matches.length) {
     matches.forEach((match, index) => {
       const category = agentImageCategory(match[1] || match[2]);
@@ -1255,7 +1435,9 @@ function parseAgentImageTasks(text = '') {
   return tasks
     .filter(item => item.prompt && item.prompt.length > 8)
     .filter(item => {
-      const key = `${item.category.key}:${item.name}:${item.prompt.slice(0, 60)}`;
+      const category = item.category || inferAgentImageCategoryFromName(item.name);
+      item.category = category;
+      const key = `${category.key}:${item.name}:${item.prompt.slice(0, 60)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -1265,36 +1447,60 @@ function parseAgentImageTasks(text = '') {
 
 function addAgentImageTasksToCanvas(prompt = '', text = '') {
   if (!shouldCreateImage2Tasks(prompt, text)) return 0;
-  const tasks = parseAgentImageTasks(text);
+  let tasks = parseAgentImageTasks(text);
+  if (!tasks.length) tasks = parseFallbackAgentAssetImageTasks(prompt, text);
   if (!tasks.length) return 0;
   const anchor = agentCanvasAnchor();
-  const order = ['character', 'scene', 'prop'];
+  const order = ['character', 'scene', 'prop', 'asset'];
   const grouped = order
-    .map(key => tasks.filter(task => task.category.key === key))
+    .map(key => tasks.filter(task => (task.category || inferAgentImageCategoryFromName(task.name)).key === key))
     .filter(group => group.length);
-  const width = 430;
-  const gapX = 34;
-  const gapY = 46;
-  const rowHeight = 330;
+  const leftovers = tasks.filter(task => !order.includes((task.category || inferAgentImageCategoryFromName(task.name)).key));
+  if (leftovers.length) grouped.push(leftovers);
+  const textWidth = 360;
+  const imageWidth = 430;
+  const pairGap = 70;
+  const colGap = 90;
+  const gapY = 56;
+  const pairWidth = textWidth + pairGap + imageWidth;
+  const columns = tasks.length > 4 ? 2 : 1;
   const created = [];
+  const textNodes = [];
   let y = anchor.y;
   grouped.forEach(group => {
     group.forEach((task, index) => {
-      const node = addNode('t2i', anchor.x + index * (width + gapX), y, {
-        title: `${task.category.label}-${task.name}`,
+      const category = task.category || inferAgentImageCategoryFromName(task.name);
+      const col = columns === 1 ? 0 : index % columns;
+      const row = columns === 1 ? index : Math.floor(index / columns);
+      const x = anchor.x + col * (pairWidth + colGap);
+      const itemY = y + row * 380;
+      const textNode = addNode('text', x, itemY, {
+        title: `${category.label}-${task.name} 提示词`,
         text: task.prompt,
+        w: textWidth,
+        h: autoTextNodeHeight(task.prompt, textWidth, 'text'),
+      });
+      const node = addNode('t2i', x + textWidth + pairGap, itemY, {
+        title: `${category.label}-${task.name}`,
         model: 'image2',
         aspect: '16:9',
         quality: '2k',
         imageCount: 1,
-        w: width,
+        w: imageWidth,
         keepTitle: true,
       });
+      state.links.push({ id: uid('link'), from: textNode.id, to: node.id });
+      textNodes.push(textNode);
       created.push(node);
     });
-    y += rowHeight + gapY;
+    y += Math.max(1, Math.ceil(group.length / columns)) * 380 + gapY;
   });
-  setStatus(`已创建 ${created.length} 个 image2 生图节点，按角色/场景/道具排放`);
+  state.selectedId = created[0]?.id || textNodes[0]?.id || state.selectedId;
+  state.activeParamNodeId = created[0]?.id || state.activeParamNodeId;
+  render();
+  saveCanvas();
+  appendAgentLog('已创建资产图工作流', `已按 16:9 创建 ${created.length} 组：文本节点 → image2 文生图节点，并开始生成。`, { role: 'assistant' });
+  setStatus(`已创建 ${created.length} 组 image2 资产图工作流`);
   created.forEach((node, index) => {
     window.setTimeout(() => generateImageFromNode(node.id), index * 220);
   });
@@ -1373,6 +1579,7 @@ function extractQualityFromText(text = '') {
 function parseAgentDirectImageCommand(command = '') {
   const raw = String(command || '').trim();
   if (!raw) return null;
+  if (/(一套|成套|资产图|素材图|资产清单|剧本|角色|场景|道具|多张|批量|依次|逐个)/i.test(raw)) return null;
   const wantsCanvasText = /(文本节点|提示词节点|放入画布|放到画布|放在画布|画布中|画布里)/i.test(raw);
   const wantsImage2 = /(image\s*2|image2|gpt-image-2)/i.test(raw);
   const wantsImage = /(生图|文生图|生成.{0,8}(图片|图像|照片)|出图|画图)/i.test(raw);
@@ -1669,8 +1876,11 @@ function secretPaths() {
   const paths = [
     ['apis', 'maas', 'apiKey'],
     ['apis', 'ark', 'apiKey'],
+    ['apis', 'kling', 'apiKey'],
+    ['apis', 'happyhorse', 'apiKey'],
     ['apis', 'banana', 'apiKey'],
     ['apis', 'image2', 'apiKey'],
+    ['apis', 'seedream', 'apiKey'],
     ['apis', 'i2i', 'apiKey'],
     ['apis', 'multimodal', 'apiKey'],
     ['apis', 'agent', 'apiKey'],
@@ -1714,8 +1924,11 @@ function normalizeConfigShape(config) {
   cfg.apis ||= {};
   cfg.apis.maas ||= {};
   cfg.apis.ark ||= {};
+  cfg.apis.kling ||= {};
+  cfg.apis.happyhorse ||= {};
   cfg.apis.banana ||= {};
   cfg.apis.image2 ||= {};
+  cfg.apis.seedream ||= {};
   cfg.apis.i2i ||= {};
   cfg.apis.multimodal ||= {};
   cfg.apis.agent ||= {};
@@ -1728,7 +1941,7 @@ function normalizeConfigShape(config) {
   }
   cfg.models ||= {};
   cfg.models.video ||= ['doubao-seedance-2-0-260'];
-  cfg.models.image ||= ['banana', 'image2'];
+  cfg.models.image ||= ['banana', 'image2', 'seedream'];
   cfg.defaults ||= {};
   cfg.defaults.videoProvider = 'ark';
   cfg.defaults.agentProvider ||= 'zhipu';
@@ -1738,7 +1951,17 @@ function normalizeConfigShape(config) {
   cfg.apis.ark.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
   cfg.apis.ark.website ||= 'https://ark.cn-beijing.volces.com';
   cfg.apis.ark.modelName ||= 'doubao-seedance-2-0-260';
-  cfg.models.video = [cfg.apis.ark.modelName];
+  cfg.apis.kling.baseUrl ||= 'https://api.klingai.com/v1';
+  cfg.apis.kling.website ||= 'https://app.klingai.com';
+  cfg.apis.kling.modelName ||= 'kling-v1-6';
+  cfg.apis.happyhorse.baseUrl ||= 'https://api.happyhorse.com/v1';
+  cfg.apis.happyhorse.website ||= 'https://happyhorse.com';
+  cfg.apis.happyhorse.modelName ||= 'happyhorse-video';
+  cfg.apis.banana.modelName ||= 'banana';
+  cfg.apis.seedream.baseUrl ||= 'https://ark.cn-beijing.volces.com/api/v3';
+  cfg.apis.seedream.website ||= 'https://ark.cn-beijing.volces.com';
+  cfg.apis.seedream.modelName ||= 'seedream-5-0-pro';
+  cfg.models.video = [cfg.apis.ark.modelName, cfg.apis.kling.modelName, cfg.apis.happyhorse.modelName].filter(Boolean);
   cfg.apis.i2i.endpointType ||= 'openai-edits';
   cfg.apis.i2i.referenceField ||= 'image';
   cfg.apis.i2i.modelName ||= '';
@@ -6006,11 +6229,23 @@ function applyConfigToUI() {
   document.querySelector('#arkBaseUrl').value = cfg.apis.ark.baseUrl || '';
   document.querySelector('#arkApiKey').value = cfg.apis.ark.apiKey || '';
   document.querySelector('#arkModel').value = cfg.apis.ark.modelName || 'doubao-seedance-2-0-260';
+  document.querySelector('#klingBaseUrl').value = cfg.apis.kling.baseUrl || 'https://api.klingai.com/v1';
+  document.querySelector('#klingApiKey').value = cfg.apis.kling.apiKey || '';
+  document.querySelector('#klingModel').value = cfg.apis.kling.modelName || 'kling-v1-6';
+  document.querySelector('#klingWebsite').value = cfg.apis.kling.website || 'https://app.klingai.com';
+  document.querySelector('#happyhorseBaseUrl').value = cfg.apis.happyhorse.baseUrl || 'https://api.happyhorse.com/v1';
+  document.querySelector('#happyhorseApiKey').value = cfg.apis.happyhorse.apiKey || '';
+  document.querySelector('#happyhorseModel').value = cfg.apis.happyhorse.modelName || 'happyhorse-video';
+  document.querySelector('#happyhorseWebsite').value = cfg.apis.happyhorse.website || 'https://happyhorse.com';
   document.querySelector('#bananaApiKey').value = cfg.apis.banana.apiKey || '';
   document.querySelector('#bananaWebsite').value = cfg.apis.banana.website || '';
+  document.querySelector('#bananaModelName').value = cfg.apis.banana.modelName || 'banana';
   document.querySelector('#image2ApiKey').value = cfg.apis.image2.apiKey || '';
   document.querySelector('#image2Website').value = cfg.apis.image2.website || '';
   document.querySelector('#image2ModelName').value = cfg.apis.image2.modelName || 'gpt-image-2';
+  document.querySelector('#seedreamApiKey').value = cfg.apis.seedream.apiKey || '';
+  document.querySelector('#seedreamWebsite').value = cfg.apis.seedream.website || 'https://ark.cn-beijing.volces.com/api/v3';
+  document.querySelector('#seedreamModelName').value = cfg.apis.seedream.modelName || 'seedream-5-0-pro';
   document.querySelector('#i2iBaseUrl').value = cfg.apis.i2i.baseUrl || '';
   document.querySelector('#i2iApiKey').value = cfg.apis.i2i.apiKey || '';
   document.querySelector('#i2iWebsite').value = cfg.apis.i2i.website || 'https://www.dmxapi.cn';
@@ -6149,11 +6384,24 @@ function collectSettingsFromUI() {
   cfg.apis.ark.apiKey = secretValue(['apis', 'ark', 'apiKey'], document.querySelector('#arkApiKey').value, cfg.apis.ark.apiKey);
   cfg.apis.ark.website = cfg.apis.ark.baseUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
   cfg.apis.ark.modelName = document.querySelector('#arkModel').value.trim() || 'doubao-seedance-2-0-260';
+  cfg.apis.kling.baseUrl = document.querySelector('#klingBaseUrl').value.trim() || 'https://api.klingai.com/v1';
+  cfg.apis.kling.apiKey = secretValue(['apis', 'kling', 'apiKey'], document.querySelector('#klingApiKey').value, cfg.apis.kling.apiKey);
+  cfg.apis.kling.website = document.querySelector('#klingWebsite').value.trim() || 'https://app.klingai.com';
+  cfg.apis.kling.modelName = document.querySelector('#klingModel').value.trim() || 'kling-v1-6';
+  cfg.apis.happyhorse.baseUrl = document.querySelector('#happyhorseBaseUrl').value.trim() || 'https://api.happyhorse.com/v1';
+  cfg.apis.happyhorse.apiKey = secretValue(['apis', 'happyhorse', 'apiKey'], document.querySelector('#happyhorseApiKey').value, cfg.apis.happyhorse.apiKey);
+  cfg.apis.happyhorse.website = document.querySelector('#happyhorseWebsite').value.trim() || 'https://happyhorse.com';
+  cfg.apis.happyhorse.modelName = document.querySelector('#happyhorseModel').value.trim() || 'happyhorse-video';
   cfg.apis.banana.apiKey = secretValue(['apis', 'banana', 'apiKey'], document.querySelector('#bananaApiKey').value, cfg.apis.banana.apiKey);
   cfg.apis.banana.website = document.querySelector('#bananaWebsite').value.trim();
+  cfg.apis.banana.modelName = document.querySelector('#bananaModelName').value.trim() || 'banana';
   cfg.apis.image2.apiKey = secretValue(['apis', 'image2', 'apiKey'], document.querySelector('#image2ApiKey').value, cfg.apis.image2.apiKey);
   cfg.apis.image2.website = document.querySelector('#image2Website').value.trim();
   cfg.apis.image2.modelName = document.querySelector('#image2ModelName').value.trim() || 'gpt-image-2';
+  cfg.apis.seedream.apiKey = secretValue(['apis', 'seedream', 'apiKey'], document.querySelector('#seedreamApiKey').value, cfg.apis.seedream.apiKey);
+  cfg.apis.seedream.website = document.querySelector('#seedreamWebsite').value.trim() || 'https://ark.cn-beijing.volces.com/api/v3';
+  cfg.apis.seedream.baseUrl = cfg.apis.seedream.website;
+  cfg.apis.seedream.modelName = document.querySelector('#seedreamModelName').value.trim() || 'seedream-5-0-pro';
   cfg.apis.i2i.baseUrl = document.querySelector('#i2iBaseUrl').value.trim();
   cfg.apis.i2i.apiKey = secretValue(['apis', 'i2i', 'apiKey'], document.querySelector('#i2iApiKey').value, cfg.apis.i2i.apiKey);
   cfg.apis.i2i.website = document.querySelector('#i2iWebsite').value.trim() || 'https://www.dmxapi.cn';
@@ -6181,7 +6429,7 @@ function collectSettingsFromUI() {
   cfg.apis.agent.promptModel = document.querySelector('#agentPromptModel').value.trim() || 'deepseek-chat';
   collectVendorSettingsFromUI(cfg);
   cfg.defaults.agentProvider = els.agentModel?.value || 'zhipu';
-  cfg.models.video = [cfg.apis.ark.modelName].filter(Boolean);
+  cfg.models.video = [cfg.apis.ark.modelName, cfg.apis.kling.modelName, cfg.apis.happyhorse.modelName].filter(Boolean);
   cfg.models.image = document.querySelector('#imageModels').value.split(',').map(s => s.trim()).filter(Boolean);
   cfg.defaults.videoModel = cfg.apis.ark.modelName;
   cfg.defaults.imageModel = cfg.models.image[0] || 'banana';

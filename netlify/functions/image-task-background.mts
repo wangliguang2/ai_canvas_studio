@@ -46,9 +46,14 @@ function gptImage2Size(ratio: string, quality: string) {
 }
 
 function imageSizeForApi(api: any, ratio: string, quality: string) {
-  return String(api.modelName || "").toLowerCase() === "gpt-image-2"
+  return String(api.modelName || "").toLowerCase() === "gpt-image-2" || isDmxGptImageModel(api)
     ? gptImage2Size(ratio, quality)
     : imageSize(ratio, quality);
+}
+
+function isDmxGptImageModel(api: any) {
+  const root = String(api.website || api.baseUrl || "").toLowerCase();
+  return root.includes("dmxapi.cn") && String(api.modelName || "").toLowerCase().startsWith("gpt-image-2");
 }
 
 function imageEndpoint(api: any) {
@@ -308,9 +313,9 @@ export default async (req: Request) => {
       form.append("prompt", prompt);
       form.append("n", String(Number(body.imageCount || 1)));
       form.append("size", imageSizeForApi(api, body.ratio || "16:9", body.quality || "2k"));
-      if (String(api.modelName || "").toLowerCase() === "gpt-image-2") {
+      if (String(api.modelName || "").toLowerCase() === "gpt-image-2" || isDmxGptImageModel(api)) {
         form.append("quality", "auto");
-        form.append("format", "jpeg");
+        form.append(isDmxGptImageModel(api) ? "output_format" : "format", "jpeg");
         form.append("background", "auto");
         form.append("moderation", "auto");
       }
@@ -355,7 +360,12 @@ export default async (req: Request) => {
       n: Number(body.imageCount || 1),
       size: imageSizeForApi(api, body.ratio || "16:9", body.quality || "2k"),
     };
-    if (String(api.modelName || "").toLowerCase() === "gpt-image-2") {
+    if (isDmxGptImageModel(api)) {
+      payload.quality = "auto";
+      payload.output_format = "jpeg";
+      payload.background = "auto";
+      payload.moderation = "auto";
+    } else if (String(api.modelName || "").toLowerCase() === "gpt-image-2") {
       payload.quality = "low";
       payload.format = "jpeg";
     }

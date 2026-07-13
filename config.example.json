@@ -14,12 +14,30 @@
                                 "website":  "",
                                 "modelName":  "banana"
                             },
+                 "seedream":  {
+                                  "baseUrl":  "https://ark.cn-beijing.volces.com/api/v3",
+                                  "apiKey":  "",
+                                  "website":  "https://ark.cn-beijing.volces.com",
+                                  "modelName":  "seedream-5-0-pro"
+                              },
                  "image2":  {
                                 "baseUrl":  "",
                                 "apiKey":  "",
                                 "website":  "https://yungpt.com",
                                 "modelName":  "gpt-image-2"
                             },
+                 "kling":  {
+                               "baseUrl":  "https://api.klingai.com/v1",
+                               "apiKey":  "",
+                               "website":  "https://app.klingai.com",
+                               "modelName":  "kling-v1-6"
+                           },
+                 "happyhorse":  {
+                                    "baseUrl":  "https://api.happyhorse.com/v1",
+                                    "apiKey":  "",
+                                    "website":  "https://happyhorse.com",
+                                    "modelName":  "happyhorse-video"
+                                },
                  "i2i":  {
                               "baseUrl":  "",
                               "apiKey":  "",
@@ -32,15 +50,18 @@
              },
     "models":  {
                    "video":  [
-                                 "doubao-seedance-2.0"
+                                 "doubao-seedance-2-0-260",
+                                 "kling-v1-6",
+                                 "happyhorse-video"
                              ],
                    "image":  [
                                  "banana",
-                                 "image2"
+                                 "image2",
+                                 "seedream"
                              ]
                },
     "defaults":  {
-                     "videoModel":  "doubao-seedance-2.0",
+                     "videoModel":  "doubao-seedance-2-0-260",
                      "imageModel":  "banana",
                      "ratio":  "16:9",
                      "duration":  8,

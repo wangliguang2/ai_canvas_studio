@@ -50,6 +50,18 @@ DEFAULT_CONFIG = {
             "website": "https://ark.cn-beijing.volces.com",
             "modelName": "doubao-seedance-2-0-260",
         },
+        "kling": {
+            "baseUrl": "https://api.klingai.com/v1",
+            "apiKey": "",
+            "website": "https://app.klingai.com",
+            "modelName": "kling-v1-6",
+        },
+        "happyhorse": {
+            "baseUrl": "https://api.happyhorse.com/v1",
+            "apiKey": "",
+            "website": "https://happyhorse.com",
+            "modelName": "happyhorse-video",
+        },
         "banana": {
             "baseUrl": "",
             "apiKey": "",
@@ -61,6 +73,12 @@ DEFAULT_CONFIG = {
             "apiKey": "",
             "website": "",
             "modelName": "gpt-image-2",
+        },
+        "seedream": {
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "apiKey": "",
+            "website": "https://ark.cn-beijing.volces.com",
+            "modelName": "seedream-5-0-pro",
         },
         "i2i": {
             "baseUrl": "",
@@ -128,7 +146,7 @@ DEFAULT_CONFIG = {
     },
     "models": {
         "video": ["doubao-seedance-2-0-260"],
-        "image": ["banana", "image2"],
+        "image": ["banana", "image2", "seedream"],
     },
     "defaults": {
         "videoModel": "doubao-seedance-2-0-260",
@@ -164,6 +182,11 @@ def normalize_config(config: dict) -> None:
     apis = config.setdefault("apis", {})
     apis.setdefault("maas", {})
     apis.setdefault("ark", {})
+    apis.setdefault("kling", {})
+    apis.setdefault("happyhorse", {})
+    apis.setdefault("banana", {})
+    apis.setdefault("image2", {})
+    apis.setdefault("seedream", {})
     apis.setdefault("i2i", {})
     apis.setdefault("multimodal", {})
     apis.setdefault("agent", {})
@@ -171,12 +194,24 @@ def normalize_config(config: dict) -> None:
     defaults = config.setdefault("defaults", {})
     models = config.setdefault("models", {})
     ark = apis["ark"]
-    models["video"] = [ark.get("modelName") or "doubao-seedance-2-0-260"]
     defaults["videoProvider"] = "ark"
     ark.setdefault("baseUrl", "https://ark.cn-beijing.volces.com/api/v3")
     ark.setdefault("website", "https://ark.cn-beijing.volces.com")
     ark.setdefault("modelName", "doubao-seedance-2-0-260")
     defaults["videoModel"] = ark.get("modelName") or "doubao-seedance-2-0-260"
+    kling = apis["kling"]
+    kling.setdefault("baseUrl", "https://api.klingai.com/v1")
+    kling.setdefault("website", "https://app.klingai.com")
+    kling.setdefault("modelName", "kling-v1-6")
+    happyhorse = apis["happyhorse"]
+    happyhorse.setdefault("baseUrl", "https://api.happyhorse.com/v1")
+    happyhorse.setdefault("website", "https://happyhorse.com")
+    happyhorse.setdefault("modelName", "happyhorse-video")
+    seedream = apis["seedream"]
+    seedream.setdefault("baseUrl", "https://ark.cn-beijing.volces.com/api/v3")
+    seedream.setdefault("website", "https://ark.cn-beijing.volces.com")
+    seedream.setdefault("modelName", "seedream-5-0-pro")
+    models["video"] = [ark.get("modelName") or "doubao-seedance-2-0-260", kling.get("modelName") or "kling-v1-6", happyhorse.get("modelName") or "happyhorse-video"]
     for key in ("banana", "image2"):
         api = config.get("apis", {}).get(key, {})
         base_url = api.get("baseUrl", "")
@@ -189,6 +224,10 @@ def normalize_config(config: dict) -> None:
             api["modelName"] = "gpt-image-2"
         if key == "banana" and not api.get("modelName"):
             api["modelName"] = "banana"
+    models["image"] = models.get("image") or ["banana", "image2", "seedream"]
+    for model_name in ("banana", "image2", "seedream"):
+        if model_name not in models["image"]:
+            models["image"].append(model_name)
     i2i = apis["i2i"]
     i2i.setdefault("endpointType", "openai-edits")
     i2i.setdefault("referenceField", "image")
@@ -883,6 +922,11 @@ def generate_image(config: dict, body: dict) -> dict:
     if is_openai_gpt_image_model(api):
         payload["quality"] = openai_image_quality(body.get("quality") or "2k")
         payload["output_format"] = "jpeg"
+    elif is_dmx_gpt_image_model(api):
+        payload["quality"] = "auto"
+        payload["output_format"] = "jpeg"
+        payload["background"] = "auto"
+        payload["moderation"] = "auto"
     elif str(api.get("modelName") or "").lower() == "gpt-image-2":
         payload["quality"] = "low"
         payload["format"] = "jpeg"
@@ -1137,6 +1181,7 @@ def call_agent_model(config: dict, body: dict) -> dict:
     system_parts = [
         "你是 AI 画布里的创作智能体，负责拆解需求、改写提示词、规划节点和给出可执行步骤。",
         f"运行模式：{body.get('runMode') or 'ask'}",
+        "当用户要求“一套资产图、资产图放到画布、链接生图节点、用 image2 出图”时，请直接输出多条资产提示词，每条使用格式：资产图1：名称｜提示词内容。名称尽量写成角色、场景、道具或具体资产名；不要输出需求拆解、节点规划、操作步骤或确认步骤。",
     ]
     if skill.get("name"):
         system_parts.append(f"当前 Skill：{skill.get('name')}")

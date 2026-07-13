@@ -16,6 +16,18 @@ const DEFAULT_CONFIG = {
       website: "https://ark.cn-beijing.volces.com",
       modelName: "doubao-seedance-2-0-260",
     },
+    kling: {
+      baseUrl: "https://api.klingai.com/v1",
+      apiKey: "",
+      website: "https://app.klingai.com",
+      modelName: "kling-v1-6",
+    },
+    happyhorse: {
+      baseUrl: "https://api.happyhorse.com/v1",
+      apiKey: "",
+      website: "https://happyhorse.com",
+      modelName: "happyhorse-video",
+    },
     banana: {
       baseUrl: "",
       apiKey: "",
@@ -27,6 +39,12 @@ const DEFAULT_CONFIG = {
       apiKey: "",
       website: "https://yungpt.com",
       modelName: "gpt-image-2",
+    },
+    seedream: {
+      baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      apiKey: "",
+      website: "https://ark.cn-beijing.volces.com",
+      modelName: "seedream-5-0-pro",
     },
     i2i: {
       baseUrl: "",
@@ -78,12 +96,12 @@ const DEFAULT_CONFIG = {
     },
   },
   models: {
-    video: ["doubao-seedance-2.0"],
-    image: ["banana", "image2"],
+    video: ["doubao-seedance-2-0-260", "kling-v1-6", "happyhorse-video"],
+    image: ["banana", "image2", "seedream"],
   },
   defaults: {
-    videoModel: "doubao-seedance-2.0",
-    videoProvider: "maas",
+    videoModel: "doubao-seedance-2-0-260",
+    videoProvider: "ark",
     agentProvider: "zhipu",
     imageModel: "banana",
     ratio: "16:9",
@@ -136,6 +154,18 @@ function configFromEnv() {
         website: env("ARK_WEBSITE", DEFAULT_CONFIG.apis.ark.website),
         modelName: env("ARK_MODEL", DEFAULT_CONFIG.apis.ark.modelName),
       },
+      kling: {
+        baseUrl: env("KLING_BASE_URL", DEFAULT_CONFIG.apis.kling.baseUrl),
+        apiKey: env("KLING_API_KEY"),
+        website: env("KLING_WEBSITE", DEFAULT_CONFIG.apis.kling.website),
+        modelName: env("KLING_MODEL", DEFAULT_CONFIG.apis.kling.modelName),
+      },
+      happyhorse: {
+        baseUrl: env("HAPPYHORSE_BASE_URL", DEFAULT_CONFIG.apis.happyhorse.baseUrl),
+        apiKey: env("HAPPYHORSE_API_KEY"),
+        website: env("HAPPYHORSE_WEBSITE", DEFAULT_CONFIG.apis.happyhorse.website),
+        modelName: env("HAPPYHORSE_MODEL", DEFAULT_CONFIG.apis.happyhorse.modelName),
+      },
       banana: {
         baseUrl: env("BANANA_BASE_URL"),
         apiKey: env("BANANA_API_KEY"),
@@ -147,6 +177,12 @@ function configFromEnv() {
         apiKey: env("IMAGE2_API_KEY"),
         website: env("IMAGE2_WEBSITE", "https://yungpt.com"),
         modelName: env("IMAGE2_MODEL_NAME", "gpt-image-2"),
+      },
+      seedream: {
+        baseUrl: env("SEEDREAM_BASE_URL", DEFAULT_CONFIG.apis.seedream.baseUrl),
+        apiKey: env("SEEDREAM_API_KEY"),
+        website: env("SEEDREAM_WEBSITE", DEFAULT_CONFIG.apis.seedream.website),
+        modelName: env("SEEDREAM_MODEL", DEFAULT_CONFIG.apis.seedream.modelName),
       },
       i2i: {
         baseUrl: env("I2I_BASE_URL"),
@@ -422,6 +458,7 @@ async function handleAgent(req: Request) {
     "5. 禁止开启或展示思考模式，不要输出推理过程、思维链、分析草稿，只输出最终答案。",
     "6. 以快速实用为优先，不做长篇自检，不写确认步骤，不等待二次口令。",
     "7. 如果用户要求把提示词或文案放到画布中，请按 [Segment]、[Segment2]、[Segment3] 分段命名输出，每段标题独占一行或位于段首。",
+    "8. 如果用户要求“一套资产图、资产图放到画布、链接生图节点、用 image2 出图”，请直接输出多条资产提示词，每条使用格式：资产图1：名称｜提示词内容。名称尽量写成角色、场景、道具或具体资产名；不要输出需求拆解、节点规划、操作步骤或确认步骤。",
   ].join("\n");
   const system = [
     "你是 AI 画布里的创作智能体，负责拆解需求、改写提示词、规划节点和给出可执行步骤。",
